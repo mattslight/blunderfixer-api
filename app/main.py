@@ -10,12 +10,13 @@ class AnalyzeRequest(BaseModel):
 def health_check():
     return {"status": "ok"}
 
+from app.engine import analyze_fen
+
 @app.post("/analyze")
-def analyze_fen(req: AnalyzeRequest):
-    # TEMP MOCK: This will be replaced with real Stockfish eval
+def analyze_fen_endpoint(req: AnalyzeRequest):
+    result = analyze_fen(req.fen)
     return {
         "fen": req.fen,
-        "best_move": "e2e4",
-        "evaluation": "+0.34 (mocked)"
+        "best_move": result["best_move"],
+        "evaluation": result["evaluation"]
     }
-
