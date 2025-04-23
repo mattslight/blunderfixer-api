@@ -1,6 +1,5 @@
 import json
 import requests
-from datetime import datetime
 from pathlib import Path
 import chess.pgn
 import io
@@ -45,6 +44,9 @@ def summarize_games(games: list, username: str) -> dict:
         "draws": 0,
         "time_classes": {},
         "avg_moves": 0,
+        "win_types": {"checkmated": 0, "abandoned": 0, "timeout": 0, "resigned": 0, "unknown": 0},  # Track win types
+        "loss_types": {"checkmated": 0, "abandoned": 0, "timeout": 0, "resigned": 0, "unknown": 0}  # Track loss types
+
     }
 
     total_moves = 0
@@ -54,23 +56,31 @@ def summarize_games(games: list, username: str) -> dict:
     for game in games:
         summary["total_games"] += 1
 
-        # Determine result
+        # Determine result and win/loss type for the user (white or black)
         result = ""
-        player = game["white"] if game["white"]["username"].lower() == game["url"].split("/")[-1].lower() else game["black"]
-        result = player.get("result", "")
+        result_outcome = "unknown"
+        if game["white"]["username"].lower() == game["url"].split('/')[-1].lower():  # If it's the white player
+            result = game["white"].get("result", "")
+            result_outcome = game["black"].get("result", "unknown")
+        else:  # It's the black player
+            result = game["black"].get("result", "")
+            result_outcome = game["white"].get("result", "unknown")
 
+        # Update win/loss based on result
         if result == "win":
             summary["wins"] += 1
+            summary["win_types"][result_outcome] += 1
         elif result in ("checkmated", "timeout", "resigned", "lose", "abandoned"):
             summary["losses"] += 1
+            summary["loss_types"][result] += 1
         elif result == "agreed":
             summary["draws"] += 1
 
-        # Time class
+        # Time class (blitz, rapid, etc.)
         tc = game.get("time_class", "unknown")
         summary["time_classes"][tc] = summary["time_classes"].get(tc, 0) + 1
 
-        # PGN parsing
+        # PGN parsing for Move count etc.
         pgn_text = game.get("pgn", "")
         game_obj = chess.pgn.read_game(io.StringIO(pgn_text))
 
@@ -78,6 +88,7 @@ def summarize_games(games: list, username: str) -> dict:
             move_count = sum(1 for _ in game_obj.mainline())
             total_moves += move_count
 
+            # Use Chess.com provided opening name or ECO code
             eco = game_obj.headers.get("ECO", "Unknown")
             eco_url = game_obj.headers.get("ECOUrl", "")
             if "openings/" in eco_url:

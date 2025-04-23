@@ -15,6 +15,8 @@ class GameSummary(BaseModel):
     training_suggestion: str
     most_common_opening: str
     openings: Dict[str, List[Dict[str, Union[str, float, int]]]]  # Adjusted for correct types
+    win_types: Dict[str, int]  # Added for tracking win types (e.g., checkmate, timeout, etc.)
+    loss_types: Dict[str, int]  # Added for tracking loss types (e.g., checkmated, resigned, etc.)
 
 class ProfileResponse(BaseModel):
     username: str
