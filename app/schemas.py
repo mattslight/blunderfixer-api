@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict
+from typing import Dict, List, Union
 
 class AnalyzeRequest(BaseModel):
     fen: str
@@ -13,7 +13,9 @@ class GameSummary(BaseModel):
     time_classes: Dict[str, int]
     avg_moves: float
     training_suggestion: str
-    
+    most_common_opening: str
+    openings: Dict[str, List[Dict[str, Union[str, float, int]]]]  # Adjusted for correct types
+
 class ProfileResponse(BaseModel):
     username: str
     month: str
