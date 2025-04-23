@@ -16,3 +16,8 @@ venv/
 # OS
 Thumbs.db
 
+# BlunderFixer user data cache
+data/*
+!.gitkeep
+
+
