@@ -11,7 +11,9 @@ class GameSummary(BaseModel):
     losses: int
     draws: int
     time_classes: Dict[str, int]
-  
+    avg_moves: float
+    training_suggestion: str
+    
 class ProfileResponse(BaseModel):
     username: str
     month: str

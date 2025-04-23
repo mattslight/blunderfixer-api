@@ -2,6 +2,8 @@ import json
 import requests
 from datetime import datetime
 from pathlib import Path
+import chess.pgn
+import io
 
 BASE_DATA_DIR = Path("data")
 
@@ -40,16 +42,22 @@ def summarize_games(games: list) -> dict:
         "wins": 0,
         "losses": 0,
         "draws": 0,
-        "time_classes": {}
+        "time_classes": {},
+        "avg_moves": 0,
     }
+
+    total_moves = 0
 
     for game in games:
         summary["total_games"] += 1
 
-        result = game.get("white", {}).get("result", "") if game["white"]["username"].lower() == game["url"].split('/')[-1].lower() \
-            else game.get("black", {}).get("result", "")
+        # Determine result
+        result = ""
+        if game["white"]["username"].lower() == game["url"].split('/')[-1].lower():
+            result = game["white"].get("result", "")
+        else:
+            result = game["black"].get("result", "")
 
-        # Normalize result
         if result == "win":
             summary["wins"] += 1
         elif result in ("checkmated", "timeout", "resigned", "lose", "abandoned"):
@@ -57,7 +65,21 @@ def summarize_games(games: list) -> dict:
         elif result == "agreed":
             summary["draws"] += 1
 
-        time_class = game.get("time_class", "unknown")
-        summary["time_classes"][time_class] = summary["time_classes"].get(time_class, 0) + 1
+        # Time class
+        tc = game.get("time_class", "unknown")
+        summary["time_classes"][tc] = summary["time_classes"].get(tc, 0) + 1
+
+        # Move count
+        pgn_text = game.get("pgn", "")
+        game_obj = chess.pgn.read_game(io.StringIO(pgn_text))
+
+        if game_obj is not None:
+            move_count = sum(1 for _ in game_obj.mainline())
+            total_moves += move_count
+
+    summary["avg_moves"] = round(total_moves / summary["total_games"] / 2, 1) if summary["total_games"] else 0
+
+    # Optional training suggestion (placeholder for now)
+    summary["training_suggestion"] = "Review key endgames with exposed kings"
 
     return summary
