@@ -33,3 +33,31 @@ def get_games(username: str, year: int, month: int) -> list:
         json.dump(games, f, indent=2)
 
     return games
+
+def summarize_games(games: list) -> dict:
+    summary = {
+        "total_games": 0,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "time_classes": {}
+    }
+
+    for game in games:
+        summary["total_games"] += 1
+
+        result = game.get("white", {}).get("result", "") if game["white"]["username"].lower() == game["url"].split('/')[-1].lower() \
+            else game.get("black", {}).get("result", "")
+
+        # Normalize result
+        if result == "win":
+            summary["wins"] += 1
+        elif result in ("checkmated", "timeout", "resigned", "lose", "abandoned"):
+            summary["losses"] += 1
+        elif result == "agreed":
+            summary["draws"] += 1
+
+        time_class = game.get("time_class", "unknown")
+        summary["time_classes"][time_class] = summary["time_classes"].get(time_class, 0) + 1
+
+    return summary
