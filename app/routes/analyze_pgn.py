@@ -3,7 +3,6 @@ from pydantic import BaseModel
 import chess.pgn
 import chess.engine
 import io
-import os
 
 from app.utils.clean_pgn import clean_pgn
 from app.utils.phase_detector import get_game_phase
