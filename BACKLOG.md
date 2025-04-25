@@ -10,7 +10,6 @@
   - Auto-detect won-but-lost endgames (+2 eval post-queen trade)
   - Let user play out vs engine from that point
 - [ ] Opening explorer with stats on win/loss by opening
+- [ ] Opening trainer (Rook + Pawn, King + Pawn, Queen + Pawn endgames (anything trainable))
 - [ ] Profile-level trend analysis (e.g. consistent blunder types)
-- [ ] Export annotated games (PDF / PGN + summary)
-- [ ] Multi-language support (English, Spanish, etc.)
 - [ ] Chess.com OAuth integration (optional: auto-import games)
