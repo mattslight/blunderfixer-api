@@ -6,7 +6,17 @@ from app.schemas import ProfileResponse
 
 router = APIRouter()
 
-@router.get("/profile/{username}", response_model=ProfileResponse)
+@router.get("/profile/{username}", response_model=ProfileResponse, summary="Get Profile Summary",
+            description="""
+                        Returns a summary of the user's performance for the current month.
+
+                        Includes:
+                        - Total wins, losses, draws
+                        - Average moves
+                        - Time class breakdown
+                        - Best and worst openings (min 5 games per opening)
+                        """
+)
 def get_profile_summary(username: str):
     now = datetime.utcnow()
     games = fetch_games(username, now.year, now.month)

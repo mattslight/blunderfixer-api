@@ -3,8 +3,8 @@ from pydantic import BaseModel
 import chess.pgn
 import io
 
-
 from app.utils.phase_detector import get_game_phase
+from app.utils.clean_pgn import clean_pgn
 
 router = APIRouter()
 
@@ -16,28 +16,16 @@ class PhaseResponseItem(BaseModel):
     san: str
     phase: str
 
-def clean_pgn(pgn_text: str) -> str:
-    import re
+@router.post("/phase",
+             response_model=list[PhaseResponseItem],
+             summary="Evaluate Phase",
+             description="""
+                        Parses a PGN and returns a list of moves, each tagged with its game phase (opening, middlegame, endgame).
 
-    # Remove all {...} comments
-    pgn_text = re.sub(r'\{.*?\}', '', pgn_text)
+                        - Cleans non-standard Chess.com PGNs automatically
+                        - Uses deterministic rules based on material and move number
+                        """)
 
-    # Remove Chess.com clock info and other tags
-    pgn_text = re.sub(r'\[%.*?\]', '', pgn_text)
-    pgn_text = re.sub(r'\[CurrentPosition .*?\]', '', pgn_text)
-
-    # Replace "1... c6" with just "c6" (removes extra black move labels)
-    pgn_text = re.sub(r'\d+\.\.\.\s*', '', pgn_text)
-
-    # Strip repeated white move numbers (e.g. "1. e4 1... c6" → "1. e4 c6")
-    pgn_text = re.sub(r'(\d+)\.\s+', r'\1. ', pgn_text)
-
-    print("--- CLEANED PGN ---")
-    print(pgn_text)
-
-    return pgn_text.strip()
-
-@router.post("/phase", response_model=list[PhaseResponseItem])
 def evaluate_phase(request: PhaseRequest):
     try:
         pgn = clean_pgn(request.pgn)
