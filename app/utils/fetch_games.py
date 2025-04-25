@@ -4,7 +4,7 @@ from pathlib import Path
 
 BASE_DATA_DIR = Path("data")
 
-def get_games(username: str, year: int, month: int) -> list:
+def fetch_games(username: str, year: int, month: int) -> list:
     user_dir = BASE_DATA_DIR / username.lower()
     user_dir.mkdir(parents=True, exist_ok=True)
 

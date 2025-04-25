@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from datetime import datetime
-from app.utils import get_games, summarize_games
+from app.utils.summarise_games import summarise_games
+from app.utils.fetch_games import fetch_games
 from app.schemas import ProfileResponse
 
 router = APIRouter()
@@ -8,8 +9,8 @@ router = APIRouter()
 @router.get("/profile/{username}", response_model=ProfileResponse)
 def get_profile_summary(username: str):
     now = datetime.utcnow()
-    games = get_games(username, now.year, now.month)
-    summary, openings = summarize_games(games, username)
+    games = fetch_games(username, now.year, now.month)
+    summary, openings = summarise_games(games, username)
 
     # Filter top and bottom 5 (games >= 5)
     filtered = {k: v for k, v in openings.items() if v["games"] >= 5}
