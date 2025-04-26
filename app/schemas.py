@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 from typing import Dict, List, Union
 
-class AnalyzeRequest(BaseModel):
+class AnalyseRequest(BaseModel):
     fen: str
     top_n: int = 1
 
@@ -22,3 +22,12 @@ class ProfileResponse(BaseModel):
     username: str
     month: str
     summary: GameSummary
+
+class TopMove(BaseModel):
+    move: str
+    evaluation: float
+    line: List[str]
+
+class ExplanationRequest(BaseModel):
+    fen: str
+    top_moves: List[TopMove]

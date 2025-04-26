@@ -77,6 +77,7 @@
   result: "0-1",
   eco: "A05",
   opening: "King's Indian Attack: Symmetrical Defense",
+
   white_acpl: 59,
   black_acpl: 16,
   key_moment: {

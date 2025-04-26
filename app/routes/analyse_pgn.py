@@ -15,7 +15,7 @@ class TopMove(BaseModel):
     san: str
     eval: float
 
-class AnalyzePGNRequest(BaseModel):
+class AnalysePGNRequest(BaseModel):
     pgn: str
 
 class AnalyzePGNResponseItem(BaseModel):
@@ -28,15 +28,15 @@ class AnalyzePGNResponseItem(BaseModel):
     top_moves: list[TopMove]
 
 @router.post(
-    "/analyze-pgn",
+    "/analyse-pgn",
     response_model=list[AnalyzePGNResponseItem],
-    summary="Analyze Full PGN with Top Engine Moves",
+    summary="Analyse Full PGN with Top Engine Moves",
     description="""
-Parses a PGN, evaluates each move with Stockfish, and returns evaluations
-including the top N engine-recommended moves at each position.
-"""
-)
-def analyze_pgn(request: AnalyzePGNRequest, top_n: int = Query(3, ge=1, le=5)):
+                Parses a PGN, evaluates each move with Stockfish, and returns evaluations
+                including the top N engine-recommended moves at each position.
+                """)
+
+def analyse_pgn(request: AnalysePGNRequest, top_n: int = Query(3, ge=1, le=5)):
     try:
         cleaned = clean_pgn(request.pgn)
         pgn_io = io.StringIO(cleaned)
