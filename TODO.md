@@ -12,10 +12,11 @@
 
 ## Frontend
 
-- [ ] Decide on frontend stack:
-  - Options: `Next.js`, `React Native`, etc.
-  - Must support fast porting to mobile
-- [ ] Wire up Chessboard JS/JSX to render game PGNs
+- [✔] Decide on frontend stack:
+  - [✔] Options: `Next.js`, `React Native`, etc.
+  - [✔] Must support fast porting to mobile
+- [✔] Wire up Chessboard JS/JSX to render FEN
+- [ ] Wire up Chessboard JS/JSX to render PGN
 - [ ] Build `/profile/{username}` screen
   - [ ] Fetch and display user summary via `/api/route/profile`
   - [ ] (1) Show profile summary
