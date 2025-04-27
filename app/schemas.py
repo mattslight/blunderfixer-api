@@ -31,3 +31,4 @@ class TopMove(BaseModel):
 class ExplanationRequest(BaseModel):
     fen: str
     top_moves: List[TopMove]
+    legal_moves: List[str]

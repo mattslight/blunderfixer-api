@@ -38,7 +38,7 @@ def analyse_fen(fen: str, depth: int = 15, top_n: int = 1) -> dict:
             else:
                 evaluation = round(score_obj.score() / 100, 2)
 
-            # Now extract full best line in SAN
+            # Extract full best line in SAN
             best_line = []
             temp_board = board.copy()
             for move_obj in entry["pv"]:
@@ -52,7 +52,11 @@ def analyse_fen(fen: str, depth: int = 15, top_n: int = 1) -> dict:
                 "line": best_line
             })
 
+    # 🆕 Get all legal moves in UCI
+    legal_moves = [move.uci() for move in board.legal_moves]
+
     return {
         "fen": fen,
-        "top_moves": moves
+        "top_moves": moves,
+        "legal_moves": legal_moves
     }
