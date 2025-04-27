@@ -1,6 +1,5 @@
 import chess
 import chess.engine
-from typing import List
 
 # Path to your Stockfish binary
 STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # Update if needed
