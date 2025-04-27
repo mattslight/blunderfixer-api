@@ -4,9 +4,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+origins = [
+    "http://localhost:5173",           # Local dev
+    "https://blunderfixer.com",        # Production frontend
+    "https://www.blunderfixer.com",    # Production alias (just in case)
+    "https://blunderfixer.vercel.app", # Preview (Staging) frontend
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,6 +31,10 @@ app.include_router(profile.router)
 
 @app.get("/health")
 def health_check():
+    return {"status": "ok"}
+
+@app.get("/")
+def root():
     return {"status": "ok"}
 
 
