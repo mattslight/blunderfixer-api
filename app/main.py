@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from app.routes import games, profile, analyse_fen, analyse_pgn, openings, phase, explain_lines, coach_chat 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -10,6 +10,25 @@ origins = [
     "https://www.blunderfixer.com",    # Production alias (just in case)
     "https://blunderfixer.vercel.app", # Preview (Staging) frontend
 ]
+
+# 🌟 Middleware to log Origin header for every request
+@app.middleware("http")
+async def log_origin_header(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if origin:
+        print(f"Incoming request Origin: {origin}")
+    else:
+        print("Incoming request has NO Origin header")
+    response = await call_next(request)
+    return response
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,7 +55,3 @@ def health_check():
 @app.get("/")
 def root():
     return {"status": "ok"}
-
-
-
-
