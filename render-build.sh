@@ -11,12 +11,14 @@ curl -L https://github.com/official-stockfish/Stockfish/releases/latest/download
 # Extract
 tar -xf stockfish.tar
 
-# Move the binary from the extracted folder
-mv stockfish-ubuntu-x86-64-avx2/stockfish stockfish
+# Move binary correctly
+mv stockfish/stockfish-ubuntu-x86-64-avx2 stockfish
+
+# Make sure it's executable
 chmod +x stockfish
 
 # Clean up
-rm -r stockfish-ubuntu-x86-64-avx2 stockfish.tar
+rm -rf stockfish stockfish.tar
 
 # Echo confirmation
 echo "✅ Stockfish binary is located at: $(pwd)/stockfish"
