@@ -9,6 +9,9 @@ load_dotenv()
 # Get STOCKFISH_PATH from environment
 STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "./bin/stockfish")  # default fallback
 
+# Debug print (optional: can delete later)
+print(f"✅ Using STOCKFISH_PATH: {STOCKFISH_PATH}")
+
 def analyse_fen(fen: str, depth: int = 15, top_n: int = 1) -> dict:
     board = chess.Board(fen)
     moves = []
