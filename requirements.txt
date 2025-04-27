@@ -10,6 +10,7 @@ flake8==7.2.0
 h11==0.14.0
 idna==3.10
 mccabe==0.7.0
+openai==1.76.0
 pycodestyle==2.13.0
 pydantic==2.11.3
 pydantic_core==2.33.1
