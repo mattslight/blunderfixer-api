@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request
-from app.routes import games, profile, analyse_fen, analyse_pgn, openings, phase, explain_lines, coach_chat 
+from app.routes import games, profile, analyse_fen, analyse_pgn, openings, phase, explain_lines, coach_chat, fen_feature_extraction, player_recent_games
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
@@ -42,10 +42,14 @@ app.include_router(analyse_fen.router)
 app.include_router(analyse_pgn.router)
 app.include_router(coach_chat.router)
 app.include_router(explain_lines.router)
+app.include_router(fen_feature_extraction.router)
 app.include_router(games.router)
 app.include_router(openings.router)
 app.include_router(phase.router)
 app.include_router(profile.router)
+app.include_router(player_recent_games.router)
+
+
 
 
 @app.get("/health")
