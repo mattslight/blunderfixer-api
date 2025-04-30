@@ -1,10 +1,22 @@
+# Exported from Render on 2025-04-30T21:25:42Z
 services:
   - type: web
     name: blunderfixer-api
-    env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    runtime: python
+    repo: https://github.com/mattslight/blunderfixer-api
+    plan: starter
     envVars:
+      - key: STOCKFISH_PATH
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
       - key: ENV
         value: production
+        sync: true
+    region: frankfurt
+    buildCommand: ./render-build.sh && pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    domains:
+      - api.blunderfixer.com
+version: "1"
