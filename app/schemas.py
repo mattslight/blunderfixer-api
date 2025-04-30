@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Any
 
 class AnalyseRequest(BaseModel):
     fen: str
@@ -23,12 +23,13 @@ class ProfileResponse(BaseModel):
     month: str
     summary: GameSummary
 
-class TopMove(BaseModel):
+class MoveInfo(BaseModel):
     move: str
     evaluation: float
     line: List[str]
 
 class ExplanationRequest(BaseModel):
     fen: str
-    top_moves: List[TopMove]
+    top_moves: List[MoveInfo]
     legal_moves: List[str]
+    features: Dict[str, Any]   # add this line
