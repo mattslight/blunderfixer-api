@@ -1,29 +1,35 @@
-import openai
-from fastapi import APIRouter, HTTPException
-from app.schemas import ExplanationRequest  # New schema needed
-from dotenv import load_dotenv
-
 import os
+from typing import Any, Dict, List
+
+import openai
+from dotenv import load_dotenv
+from fastapi import APIRouter, HTTPException
+
+from app.schemas import ExplanationRequest  # New schema needed
+from app.schemas import LineInfo
 
 load_dotenv()
 router = APIRouter()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
-    raise HTTPException(status_code=500, detail="Server misconfiguration: OpenAI API key not set.")
+    raise HTTPException(
+        status_code=500, detail="Server misconfiguration: OpenAI API key not set."
+    )
 
 client = openai.OpenAI(api_key=openai_api_key)
 
+
 @router.post("/explain-lines", summary="Get Coach Explanation")
 def get_explanation(req: ExplanationRequest):
-    prompt = build_prompt(req.fen, req.top_moves, req.legal_moves, req.features)
+    prompt = build_prompt(req.fen, req.lines, req.legal_moves, req.features)
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=500
+            temperature=1,
+            max_completion_tokens=500,
         )
         explanation = response.choices[0].message.content
         print("🧠 Explanation Response:", explanation)
@@ -33,33 +39,41 @@ def get_explanation(req: ExplanationRequest):
         return {"error": str(e)}
 
 
-def build_prompt(fen: str, top_moves: list, legal_moves: list, features: dict) -> str:
+def build_prompt(
+    fen: str, lines: List[LineInfo], legal_moves: List[str], features: Dict[str, Any]
+) -> str:
     feat = features
 
     # 0) Build a concise “Highlights” of non-obvious features
     highlights = []
     # passed pawns
-    wp = ", ".join(feat['structure']['passed_pawns']['white'])
-    bp = ", ".join(feat['structure']['passed_pawns']['black'])
+    wp = ", ".join(feat["structure"]["passed_pawns"]["white"])
+    bp = ", ".join(feat["structure"]["passed_pawns"]["black"])
     if wp or bp:
-        highlights.append(f"Passed pawns — White({wp or 'none'}), Black({bp or 'none'})")
+        highlights.append(
+            f"Passed pawns — White({wp or 'none'}), Black({bp or 'none'})"
+        )
     # weak squares
-    wws = ", ".join(feat['safety']['weak_squares']['white'])
-    bws = ", ".join(feat['safety']['weak_squares']['black'])
+    wws = ", ".join(feat["safety"]["weak_squares"]["white"])
+    bws = ", ".join(feat["safety"]["weak_squares"]["black"])
     if wws or bws:
-        highlights.append(f"Weak squares — White({wws or 'none'}), Black({bws or 'none'})")
+        highlights.append(
+            f"Weak squares — White({wws or 'none'}), Black({bws or 'none'})"
+        )
     # open files
-    of = ", ".join(feat['lines']['open_files'])
+    of = ", ".join(feat["lines"]["open_files"])
     if of:
         highlights.append(f"Open files — {of}")
     # semi-open diagonals
-    sodw = ", ".join(feat['lines']['diagonals']['semi_open_white'])
-    sodb = ", ".join(feat['lines']['diagonals']['semi_open_black'])
+    sodw = ", ".join(feat["lines"]["diagonals"]["semi_open_white"])
+    sodb = ", ".join(feat["lines"]["diagonals"]["semi_open_black"])
     if sodw or sodb:
-        highlights.append(f"Semi-open diagonals for White({sodw or 'none'}), Black({sodb or 'none'})")
+        highlights.append(
+            f"Semi-open diagonals for White({sodw or 'none'}), Black({sodb or 'none'})"
+        )
 
     highlight_text = " • ".join(highlights) if highlights else "None"
-    
+
     # 1) Build a bullet‐list summary of the key positional features
     summary = f"""
     Position Features:
@@ -71,12 +85,21 @@ def build_prompt(fen: str, top_moves: list, legal_moves: list, features: dict) -
     • Open diagonals: {', '.join(feat['lines']['diagonals']['open'])}
     """
 
-    # 2) Prepare the top‐moves text
-    move_texts = []
-    for move in top_moves:
-        line_preview = " → ".join(move.line[:5]) + (" ..." if len(move.line) > 5 else "")
-        move_texts.append(f"Move: {move.move} | Eval: {move.evaluation} | Line: {line_preview}")
-    moves_text = "\n".join(move_texts)
+    # 2) Show a summary table of each line:
+    line_texts = []
+    for ln in lines:
+        score = (
+            f"{ln.scoreCP/100:.2f}"
+            if ln.scoreCP is not None
+            else f"mate in {ln.mateIn}"
+        )
+        moves_snippet = " → ".join(ln.moves[:5])
+        line_texts.append(
+            f"#{ln.rank} (depth {ln.searchDepth}) | Eval: {score} | Line: {moves_snippet}{' …' if len(ln.moves)>5 else ''}"
+        )
+    lines_block = "\n".join(line_texts)
+
+    # 3) Construct the legal moves text
     legal_moves_text = ", ".join(legal_moves) if legal_moves else "No legal moves"
 
     # 3) Any special instructions for single‐move situations
@@ -94,7 +117,7 @@ def build_prompt(fen: str, top_moves: list, legal_moves: list, features: dict) -
     prompt = f"""
             You are a world-class chess coach advising club-level players (rating 800–1800).
 
-            Your goal is to explain the position **clearly and concisely** without unnecessary introductions or filler.
+            Your goal is to explain the position **clearly and concisely** without unnecessary introductions or filler – **pay particular attention to the top continuations**.
 
             FEN: {fen}
 
@@ -103,31 +126,31 @@ def build_prompt(fen: str, top_moves: list, legal_moves: list, features: dict) -
             🧩 **Position Highlights:**  
             {highlight_text}
 
-            Top Moves:
-            {moves_text}
+            🧭 **Top continuations** (showing rank, depth, eval, first few moves):
+            {lines_block}
 
-            Legal Moves Allowed:
+            🔓 **Legal Moves Allowed:**
             {legal_moves_text}
 
             {special_instructions}
 
             🎯 **Your writing rules:**
-            - Start immediately with the best move recommendation (no greetings or intros).
-            - Use **short paragraphs** (2–3 sentences each).
-            - **Bold important moves** (e.g., **d4**, **Bc4**). Use Standard Algebraic Notation (SAN) only.
-            - Use emojis lightly to emphasize key ideas (🎯 tactics, 🔥 attacks, 🏰 castling).
-            - Include a Quick Table (| Move | Pros | Cons |) if comparing moves.
-            - Focus on 1–2 key positional or tactical ideas.
+            1. Start immediately with the best move recommendation (no greetings or intros).
+            2. BE CONCISE AND DIRECT
+            3. **Short paragraphs** (2–3 sentences each).
+            4. **Bold important moves** (e.g., **d4**, **Bc4**). Use Standard Algebraic Notation (SAN) only.
+            5. Use emojis lightly to emphasize key ideas (🎯 tactics, 🔥 attacks, 🏰 castling etc.)
+            6. Include a Quick Table (| Move | Pros | Cons |) if comparing moves.
+            7. Focus on 1–2 key positional or tactical ideas.
 
             ❌ Avoid:
-            - No UCI in narrative `b1a2`
-            - No "In this intriguing position..."
-            - No "You have a wonderful opportunity..."
-            - No long-winded openings.
-            - No vague generalities. Avoid "Stay vigilant", "look for tactics", "Keep the pressure", "find weaknesses" to exploit", "every move counts!"
-            - No robotic listing of moves without ideas.
+            1. No UCI in narrative `b1a2`
+            2. No "In this intriguing position..."
+            3. No "You have a wonderful opportunity..."
+            4. No long-winded openings.
+            5. No vague generalities. Avoid "Stay vigilant", "look for tactics", "Keep the pressure", "find weaknesses" to exploit", "every move counts!"
+            6. No robotic listing of moves without ideas.
 
             🏁 Coach with energy, precision, and clarity.
               """
     return prompt
-

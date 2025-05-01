@@ -1,13 +1,16 @@
 # fen_feature_extraction.py
+from collections import Counter
+
+import chess
 from fastapi import APIRouter
 from pydantic import BaseModel
-from collections import Counter
-import chess
 
 router = APIRouter()
 
+
 class FeatureExtractionRequest(BaseModel):
     fen: str
+
 
 PIECE_NAME = {
     chess.KNIGHT: "Knight",
@@ -16,69 +19,71 @@ PIECE_NAME = {
     chess.QUEEN: "Queen",
 }
 
-@router.post("/extract-features", summary="Extract position features from a FEN for LLM coaching")
+
+@router.post(
+    "/extract-features", summary="Extract position features from a FEN for LLM coaching"
+)
 def extract_features(req: FeatureExtractionRequest):
     board = chess.Board(req.fen)
-    
+
     # Phase-1 & Phase-2 core features
-    material        = get_material_balance(board)
-    center          = get_center_control(board)
-    king            = get_king_safety(board)
-    open_files      = get_open_files(board)
+    material = get_material_balance(board)
+    center = get_center_control(board)
+    king = get_king_safety(board)
+    open_files = get_open_files(board)
     semi_open_files = get_semi_open_files(board)
-    doubled         = get_doubled_pawns(board)
-    pawn_struct     = get_pawn_structure(board)
-    attacked        = get_attacked_pieces(board)
-    activity        = get_piece_activity(board)
-    mobility        = get_mobility(board)
-    space           = get_space_advantage(board)
-    loose_hanging   = get_loose_and_hanging_pieces(board)
+    doubled = get_doubled_pawns(board)
+    pawn_struct = get_pawn_structure(board)
+    attacked = get_attacked_pieces(board)
+    activity = get_piece_activity(board)
+    mobility = get_mobility(board)
+    space = get_space_advantage(board)
+    loose_hanging = get_loose_and_hanging_pieces(board)
 
     # New strategic/tactical features
-    diagonals    = get_diagonals(board)
+    diagonals = get_diagonals(board)
     has_bishop_pair = get_bishop_pair(board)
     weak_squares = get_weak_squares(board)
     passed_pawns = get_passed_pawns(board)
-    outposts     = get_outposts(board)
-    rook_place   = get_rook_placement(board, open_files, semi_open_files)
+    outposts = get_outposts(board)
+    rook_place = get_rook_placement(board, open_files, semi_open_files)
 
     # Grouped output
     features = {
         "material": material,
-        "safety": {
-            "king": king,
-            "weak_squares": weak_squares
-        },
+        "safety": {"king": king, "weak_squares": weak_squares},
         "structure": {
             "pawn_structure": pawn_struct,
             "doubled_pawns": doubled,
             "has_bishop_pair": has_bishop_pair,
             "passed_pawns": passed_pawns,
-            "outposts": outposts
+            "outposts": outposts,
         },
         "center_control": center,
-        "mobility": {
-            "total": mobility,
-            "per_piece": activity
-        },
+        "mobility": {"total": mobility, "per_piece": activity},
         "tactics": {
             "attacked_pieces": attacked,
-            "loose_and_hanging_pieces": loose_hanging
+            "loose_and_hanging_pieces": loose_hanging,
         },
         "lines": {
             "open_files": open_files,
             "semi_open_files": semi_open_files,
             "diagonals": {
                 "open": [d for d, status in diagonals.items() if status == "open"],
-                "semi_open_white": [d for d, status in diagonals.items() if status == "semi_open_white"],
-                "semi_open_black": [d for d, status in diagonals.items() if status == "semi_open_black"]
+                "semi_open_white": [
+                    d for d, status in diagonals.items() if status == "semi_open_white"
+                ],
+                "semi_open_black": [
+                    d for d, status in diagonals.items() if status == "semi_open_black"
+                ],
             },
-            "rook_placement": rook_place
+            "rook_placement": rook_place,
         },
-        "space_advantage": space
+        "space_advantage": space,
     }
 
     return features
+
 
 def get_material_balance(board):
     """
@@ -87,11 +92,11 @@ def get_material_balance(board):
       - 'advantage': 'white', 'black', or 'equal'
     """
     piece_values = {
-        chess.PAWN:   1,
+        chess.PAWN: 1,
         chess.KNIGHT: 3,
         chess.BISHOP: 3,
-        chess.ROOK:   5,
-        chess.QUEEN:  9,
+        chess.ROOK: 5,
+        chess.QUEEN: 9,
     }
 
     balance = 0
@@ -106,16 +111,15 @@ def get_material_balance(board):
     else:
         adv = "equal"
 
-    return {
-        "balance": balance,
-        "advantage": adv
-    }
+    return {"balance": balance, "advantage": adv}
+
 
 def get_center_control(board):
     center_squares = [chess.D4, chess.E4, chess.D5, chess.E5]
     white = sum(board.is_attacked_by(chess.WHITE, sq) for sq in center_squares)
     black = sum(board.is_attacked_by(chess.BLACK, sq) for sq in center_squares)
     return {"white": white, "black": black}
+
 
 def get_king_safety(board):
     def analyze(color):
@@ -139,14 +143,22 @@ def get_king_safety(board):
                 info["status"] = "castled queenside"
 
         # 2. Castling availability (legal right now)
-        kingside_move  = chess.Move.from_uci("e1g1") if color == chess.WHITE else chess.Move.from_uci("e8g8")
-        queenside_move = chess.Move.from_uci("e1c1") if color == chess.WHITE else chess.Move.from_uci("e8c8")
-        legal_moves    = set(board.legal_moves)
-        info["can_castle_kingside"]  = (kingside_move in legal_moves)
-        info["can_castle_queenside"] = (queenside_move in legal_moves)
+        kingside_move = (
+            chess.Move.from_uci("e1g1")
+            if color == chess.WHITE
+            else chess.Move.from_uci("e8g8")
+        )
+        queenside_move = (
+            chess.Move.from_uci("e1c1")
+            if color == chess.WHITE
+            else chess.Move.from_uci("e8c8")
+        )
+        legal_moves = set(board.legal_moves)
+        info["can_castle_kingside"] = kingside_move in legal_moves
+        info["can_castle_queenside"] = queenside_move in legal_moves
 
         # 3. In-check status by counting attackers on king square
-        info["in_check"] = (len(board.attackers(opp, king_sq)) > 0)
+        info["in_check"] = len(board.attackers(opp, king_sq)) > 0
 
         # 4. Number of enemy attackers on the king
         info["attackers"] = len(board.attackers(opp, king_sq))
@@ -180,21 +192,37 @@ def get_king_safety(board):
 def get_open_files(board):
     open_files = []
     for file in range(8):
-        if all(board.piece_at(chess.square(file, rank)) is None or board.piece_at(chess.square(file, rank)).piece_type != chess.PAWN for rank in range(8)):
-            open_files.append(chr(file + ord('a')))
+        if all(
+            board.piece_at(chess.square(file, rank)) is None
+            or board.piece_at(chess.square(file, rank)).piece_type != chess.PAWN
+            for rank in range(8)
+        ):
+            open_files.append(chr(file + ord("a")))
     return open_files
+
 
 def get_semi_open_files(board):
     semi_open = {"white": [], "black": []}
     for file in range(8):
         file_squares = [chess.square(file, rank) for rank in range(8)]
-        white_pawns = any(board.piece_at(sq) and board.piece_at(sq).piece_type == chess.PAWN and board.piece_at(sq).color == chess.WHITE for sq in file_squares)
-        black_pawns = any(board.piece_at(sq) and board.piece_at(sq).piece_type == chess.PAWN and board.piece_at(sq).color == chess.BLACK for sq in file_squares)
+        white_pawns = any(
+            board.piece_at(sq)
+            and board.piece_at(sq).piece_type == chess.PAWN
+            and board.piece_at(sq).color == chess.WHITE
+            for sq in file_squares
+        )
+        black_pawns = any(
+            board.piece_at(sq)
+            and board.piece_at(sq).piece_type == chess.PAWN
+            and board.piece_at(sq).color == chess.BLACK
+            for sq in file_squares
+        )
         if not white_pawns and black_pawns:
-            semi_open["white"].append(chr(file + ord('a')))
+            semi_open["white"].append(chr(file + ord("a")))
         if not black_pawns and white_pawns:
-            semi_open["black"].append(chr(file + ord('a')))
+            semi_open["black"].append(chr(file + ord("a")))
     return semi_open
+
 
 def get_doubled_pawns(board):
     doubled = {"white": [], "black": []}
@@ -208,7 +236,7 @@ def get_doubled_pawns(board):
         # Any file with count > 1 is doubled
         for file_idx, cnt in file_counts.items():
             if cnt > 1:
-                file_letter = chr(file_idx + ord('a'))
+                file_letter = chr(file_idx + ord("a"))
                 doubled[side].append(f"{file_letter}-file")
 
     return doubled
@@ -247,21 +275,24 @@ def get_attacked_pieces(board):
         entry = {
             "piece": PIECE_NAME[piece.piece_type],
             "square": chess.square_name(square),
-            "attackers": []
+            "attackers": [],
         }
 
         # List each attacker by full name and square
         for a_sq in sorted(attackers):
             attacker = board.piece_at(a_sq)
             if attacker and attacker.piece_type in PIECE_NAME:
-                entry["attackers"].append({
-                    "piece": PIECE_NAME[attacker.piece_type],
-                    "square": chess.square_name(a_sq)
-                })
+                entry["attackers"].append(
+                    {
+                        "piece": PIECE_NAME[attacker.piece_type],
+                        "square": chess.square_name(a_sq),
+                    }
+                )
 
         attacked[side].append(entry)
 
     return attacked
+
 
 def get_piece_activity(board):
     """
@@ -286,19 +317,20 @@ def get_piece_activity(board):
                 continue
             key = (p.piece_type, move.from_square)
             seen.setdefault(key, []).append(move.uci())
-        # build list  
+        # build list
         for (ptype, sq), mvlist in seen.items():
-            result[side].append({
-                "piece": PIECE_NAME[ptype],
-                "square": chess.square_name(sq),
-                "move_count": len(mvlist),
-                "moves": mvlist
-            })
+            result[side].append(
+                {
+                    "piece": PIECE_NAME[ptype],
+                    "square": chess.square_name(sq),
+                    "move_count": len(mvlist),
+                    "moves": mvlist,
+                }
+            )
 
     collect(chess.WHITE, "white")
     collect(chess.BLACK, "black")
     return result
-
 
 
 def get_pawn_structure(board):
@@ -309,8 +341,18 @@ def get_pawn_structure(board):
     semi_open = {"white": [], "black": []}
     for f in range(8):
         squares = [chess.square(f, r) for r in range(8)]
-        has_wp = any(board.piece_at(sq) and board.piece_at(sq).piece_type == chess.PAWN and board.piece_at(sq).color == chess.WHITE for sq in squares)
-        has_bp = any(board.piece_at(sq) and board.piece_at(sq).piece_type == chess.PAWN and board.piece_at(sq).color == chess.BLACK for sq in squares)
+        has_wp = any(
+            board.piece_at(sq)
+            and board.piece_at(sq).piece_type == chess.PAWN
+            and board.piece_at(sq).color == chess.WHITE
+            for sq in squares
+        )
+        has_bp = any(
+            board.piece_at(sq)
+            and board.piece_at(sq).piece_type == chess.PAWN
+            and board.piece_at(sq).color == chess.BLACK
+            for sq in squares
+        )
         if not has_wp and not has_bp:
             open_files.append(f)
         if not has_wp and has_bp:
@@ -326,7 +368,7 @@ def get_pawn_structure(board):
             file = chess.square_file(pawn_sq)
             rank = chess.square_rank(pawn_sq)
 
-            # 1) Isolated pawn?
+            # 1. Isolated pawn?
             adj_files = [file - 1, file + 1]
             is_isolated = True
             for af in adj_files:
@@ -334,14 +376,16 @@ def get_pawn_structure(board):
                     is_isolated = False
                     break
             if is_isolated:
-                pawn_structure[side].append(f"isolated pawn on {chess.square_name(pawn_sq)}")
+                pawn_structure[side].append(
+                    f"isolated pawn on {chess.square_name(pawn_sq)}"
+                )
                 continue
 
-            # 2) Only consider backward on open/semi-open
+            # 2. Only consider backward on open/semi-open
             if file not in open_files and file not in semi_open[side]:
                 continue
 
-            # 3) If the square in front is empty…
+            # 3. If the square in front is empty…
             forward = 1 if color == chess.WHITE else -1
             front_rank = rank + forward
             if not (0 <= front_rank <= 7):
@@ -350,11 +394,11 @@ def get_pawn_structure(board):
             if board.piece_at(front_sq) is not None:
                 continue
 
-            # 4) Count attackers vs defenders on that front square
+            # 4. Count attackers vs defenders on that front square
             attackers = len(board.attackers(not color, front_sq))
             defenders = len(board.attackers(color, front_sq))
 
-            # 5) Ensure no adjacent pawn can ever defend the front square
+            # 5. Ensure no adjacent pawn can ever defend the front square
             can_defend = False
             for af in adj_files:
                 if 0 <= af <= 7:
@@ -367,12 +411,13 @@ def get_pawn_structure(board):
                     if can_defend:
                         break
 
-            # 6) If front square is under-defended and undefendable → backward pawn
+            # 6. If front square is under-defended and undefendable → backward pawn
             if not can_defend and attackers > defenders:
-                pawn_structure[side].append(f"backward pawn on {chess.square_name(pawn_sq)}")
+                pawn_structure[side].append(
+                    f"backward pawn on {chess.square_name(pawn_sq)}"
+                )
 
     return pawn_structure
-
 
 
 def get_mobility(board):
@@ -393,7 +438,6 @@ def get_mobility(board):
     return {"white_moves": white_moves, "black_moves": black_moves}
 
 
-
 def get_space_advantage(board):
     white_count = 0
     black_count = 0
@@ -412,11 +456,7 @@ def get_space_advantage(board):
     else:
         winner = "equal"
 
-    return {
-        "white_space": white_count,
-        "black_space": black_count,
-        "advantage": winner
-    }
+    return {"white_space": white_count, "black_space": black_count, "advantage": winner}
 
 
 def get_loose_and_hanging_pieces(board):
@@ -426,7 +466,10 @@ def get_loose_and_hanging_pieces(board):
       - 'loose': attacked by exactly as many enemies as defenders (and at least once)
     Also reports how many attackers and their piece types.
     """
-    pieces = {"white": {"loose": [], "hanging": []}, "black": {"loose": [], "hanging": []}}
+    pieces = {
+        "white": {"loose": [], "hanging": []},
+        "black": {"loose": [], "hanging": []},
+    }
 
     for square, piece in board.piece_map().items():
         # Skip pawns and kings
@@ -447,7 +490,9 @@ def get_loose_and_hanging_pieces(board):
         sq_name = chess.square_name(square)
 
         # Normalize attacker piece types to uppercase symbols
-        attacker_types = sorted({board.piece_at(a).symbol().upper() for a in attackers_sqs})
+        attacker_types = sorted(
+            {board.piece_at(a).symbol().upper() for a in attackers_sqs}
+        )
         types_str = ", ".join(attacker_types)
 
         # Classify hanging vs loose
@@ -460,18 +505,23 @@ def get_loose_and_hanging_pieces(board):
 
     return pieces
 
+
 def get_diagonals(board):
     diagonals = {}
     # a1–h8 direction
     for d in range(-7, 8):
-        sqs = [sq for sq in chess.SQUARES
-               if chess.square_file(sq) - chess.square_rank(sq) == d]
-        if len(sqs) < 4:                      # ← only keep len ≥ 4
+        sqs = [
+            sq
+            for sq in chess.SQUARES
+            if chess.square_file(sq) - chess.square_rank(sq) == d
+        ]
+        if len(sqs) < 4:  # ← only keep len ≥ 4
             continue
         sqs.sort(key=lambda sq: (chess.square_rank(sq), chess.square_file(sq)))
         name = f"{chess.square_name(sqs[0])}-{chess.square_name(sqs[-1])}"
-        pawns = [sq for sq in sqs
-                 if (p := board.piece_at(sq)) and p.piece_type == chess.PAWN]
+        pawns = [
+            sq for sq in sqs if (p := board.piece_at(sq)) and p.piece_type == chess.PAWN
+        ]
         if not pawns:
             diagonals[name] = "open"
         else:
@@ -486,14 +536,18 @@ def get_diagonals(board):
 
     # h1–a8 direction
     for s in range(1, 15):
-        sqs = [sq for sq in chess.SQUARES
-               if chess.square_file(sq) + chess.square_rank(sq) == s]
-        if len(sqs) < 4:                      # ← only keep len ≥ 4
+        sqs = [
+            sq
+            for sq in chess.SQUARES
+            if chess.square_file(sq) + chess.square_rank(sq) == s
+        ]
+        if len(sqs) < 4:  # ← only keep len ≥ 4
             continue
         sqs.sort(key=lambda sq: (chess.square_rank(sq), -chess.square_file(sq)))
         name = f"{chess.square_name(sqs[0])}-{chess.square_name(sqs[-1])}"
-        pawns = [sq for sq in sqs
-                 if (p := board.piece_at(sq)) and p.piece_type == chess.PAWN]
+        pawns = [
+            sq for sq in sqs if (p := board.piece_at(sq)) and p.piece_type == chess.PAWN
+        ]
         if not pawns:
             diagonals[name] = "open"
         else:
@@ -507,7 +561,6 @@ def get_diagonals(board):
                 diagonals[name] = "blocked"
 
     return diagonals
-
 
 
 def get_bishop_pair(board):
@@ -569,7 +622,6 @@ def get_weak_squares(board):
     return weak
 
 
-
 def get_passed_pawns(board):
     """
     Pawns for which there is NO enemy pawn on the same file or adjacent files
@@ -590,7 +642,11 @@ def get_passed_pawns(board):
             for af in (file - 1, file, file + 1):
                 if 0 <= af <= 7:
                     # ranks in front of the pawn
-                    ranks = range(rank + direction, 8) if color == chess.WHITE else range(rank + direction, -1, -1)
+                    ranks = (
+                        range(rank + direction, 8)
+                        if color == chess.WHITE
+                        else range(rank + direction, -1, -1)
+                    )
                     for rr in ranks:
                         target = chess.square(af, rr)
                         p = board.piece_at(target)
@@ -643,7 +699,7 @@ def get_outposts(board: chess.Board) -> dict:
                 r = chess.square_rank(sq)
                 if not (3 <= r <= 6):
                     continue
-                # 1) pawn-protected?
+                # 1. pawn-protected?
                 if not any(
                     board.piece_at(a)
                     and board.piece_at(a).piece_type == chess.PAWN
@@ -651,14 +707,13 @@ def get_outposts(board: chess.Board) -> dict:
                     for a in board.attackers(color, sq)
                 ):
                     continue
-                # 2) no direct pawn attacks
+                # 2. no direct pawn attacks
                 if any(
-                    board.piece_at(a)
-                    and board.piece_at(a).piece_type == chess.PAWN
+                    board.piece_at(a) and board.piece_at(a).piece_type == chess.PAWN
                     for a in board.attackers(enemy, sq)
                 ):
                     continue
-                # 3) no pawn pushes
+                # 3. no pawn pushes
                 if is_dislodgeable(board, sq, enemy):
                     continue
 
@@ -668,13 +723,15 @@ def get_outposts(board: chess.Board) -> dict:
     return outposts
 
 
-
 def get_rook_placement(board, open_files, semi_open_files):
     """
     For each rook, note if it sits on an open or semi-open file.
     `open_files` is a list like ['a','d'], `semi_open_files` a dict with 'white'/'black' lists.
     """
-    placement = {"white": {"open": [], "semi_open": []}, "black": {"open": [], "semi_open": []}}
+    placement = {
+        "white": {"open": [], "semi_open": []},
+        "black": {"open": [], "semi_open": []},
+    }
 
     for color, side in ((chess.WHITE, "white"), (chess.BLACK, "black")):
         for sq in board.pieces(chess.ROOK, color):
