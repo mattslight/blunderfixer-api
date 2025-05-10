@@ -1,4 +1,5 @@
 import io
+import traceback
 
 import chess.engine
 import chess.pgn
@@ -73,4 +74,6 @@ def analyse_shallow(req: AnalyseShallowRequest):
         return nodes
 
     except Exception as e:
-        raise HTTPException(500, detail=str(e))
+        print("🔥 Error in /analyse-pgn")
+        print(traceback.format_exc())  # full traceback in Render logs
+        raise HTTPException(500, detail="Internal error, see server logs")
