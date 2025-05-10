@@ -1,125 +1,76 @@
-from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
-import chess.pgn
-import chess.engine
 import io
 
-from app.utils.clean_pgn import clean_pgn
-from app.utils.phase_detector import get_game_phase
+import chess.engine
+import chess.pgn
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 router = APIRouter()
 
-STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # Hardcoded for local dev
+STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # or wherever you deploy
 
-class TopMove(BaseModel):
-    san: str
-    eval: float
+# ─── Request & Response models ──────────────────────────────────────────
 
-class AnalysePGNRequest(BaseModel):
+
+class AnalyseShallowRequest(BaseModel):
     pgn: str
+    depth: int = Query(8, ge=1, le=40, description="Stockfish search depth")
 
-class AnalyzePGNResponseItem(BaseModel):
-    move_number: int
-    san: str
-    phase: str
-    evaluation: float  # eval *after* move is played
-    centipawn_loss: float  # eval diff from best move before
-    mate: bool
-    top_moves: list[TopMove]
+
+class ShallowNode(BaseModel):
+    half_move_index: int  # 0 = before White’s 1st move, 1 = before Black’s 1st…
+    fen: str  # position FEN
+    eval_cp: float  # centipawn score (positive = White better)
+    delta_cp: float  # this.eval_cp – previous.eval_cp
+
+
+# ─── Endpoint ────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/analyse-pgn",
-    response_model=list[AnalyzePGNResponseItem],
-    summary="Analyse Full PGN with Top Engine Moves",
-    description="""
-                Parses a PGN, evaluates each move with Stockfish, and returns evaluations
-                including the top N engine-recommended moves at each position.
-                """)
-
-def analyse_pgn(request: AnalysePGNRequest, top_n: int = Query(3, ge=1, le=5)):
+    response_model=list[ShallowNode],
+    summary="Quick, depth-N evaluation of every ply in a PGN",
+)
+def analyse_shallow(req: AnalyseShallowRequest):
     try:
-        cleaned = clean_pgn(request.pgn)
-        pgn_io = io.StringIO(cleaned)
+        # parse PGN
+        pgn_io = io.StringIO(req.pgn)
         game = chess.pgn.read_game(pgn_io)
-
         if game is None:
-            raise HTTPException(status_code=400, detail="Invalid PGN provided.")
+            raise HTTPException(400, "Invalid PGN")
 
-        evaluations = []
         board = game.board()
-        move_stack = []
-        move_number = 0
+        nodes: list[ShallowNode] = []
+        prev_eval = 0.0
 
+        # spawn Stockfish once for the whole scan
         with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
+            half_idx = 0
             for move in game.mainline_moves():
-                move_number += 1
+                # evaluate *before* the move
+                info = engine.analyse(board, chess.engine.Limit(depth=req.depth))
+                score = info["score"].white()
+                eval_cp = (
+                    float(score.score() / 1.0)
+                    if not score.is_mate()
+                    else (1e4 if score.mate() > 0 else -1e4)
+                )
 
-                pre_move_board = board.copy()  # BEFORE the move
+                nodes.append(
+                    ShallowNode(
+                        half_move_index=half_idx,
+                        fen=board.fen(),
+                        eval_cp=eval_cp,
+                        delta_cp=half_idx == 0 and 0.0 or eval_cp - prev_eval,
+                    )
+                )
 
-                # Eval BEFORE move to get top move and compute centipawn loss
-                try:
-                    info_list = engine.analyse(pre_move_board, chess.engine.Limit(depth=12), multipv=top_n)
-                except Exception:
-                    raise HTTPException(status_code=500, detail=f"Engine failed on move {move_number} (pre-analysis)")
-
-                if not isinstance(info_list, list):
-                    info_list = [info_list]
-
-                top_moves = []
-                best_score_before = info_list[0]["score"].white()
-                if best_score_before.is_mate():
-                    best_eval = 10000.0 if best_score_before.mate() > 0 else -10000.0
-                else:
-                    best_eval = best_score_before.score() / 100.0
-
-                for info in info_list:
-                    best_move = info["pv"][0]
-                    score = info["score"].white()
-                    if score.is_mate():
-                        eval_score = 10000.0 if score.mate() > 0 else -10000.0
-                    else:
-                        eval_score = score.score() / 100.0
-
-                    top_moves.append(TopMove(
-                        san=pre_move_board.san(best_move),
-                        eval=round(eval_score, 2)
-                    ))
-
-                # Play move
-                san = board.san(move)
+                prev_eval = eval_cp
                 board.push(move)
-                move_stack.append(move)
-                phase = get_game_phase(board, board.fullmove_number, move_stack)
+                half_idx += 1
 
-                # Eval AFTER move
-                post_score = engine.analyse(board, chess.engine.Limit(depth=12))["score"].white()
-                mate = post_score.is_mate()
-                if mate:
-                    evaluation = 10000.0 if post_score.mate() > 0 else -10000.0
-                else:
-                    evaluation = post_score.score() / 100.0
-
-                # Determine centipawn loss relative to best move only
-                if mate:
-                    centipawn_loss = 0.0
-                else:
-                    if pre_move_board.turn == chess.WHITE:
-                        centipawn_loss = round(best_eval - evaluation, 2)
-                    else:
-                        centipawn_loss = round(evaluation - best_eval, 2)
-                    centipawn_loss = max(0.0, centipawn_loss)
-
-                evaluations.append(AnalyzePGNResponseItem(
-                    move_number=move_number,
-                    san=san,
-                    phase=phase,
-                    evaluation=round(evaluation, 2),
-                    centipawn_loss=centipawn_loss,
-                    mate=mate,
-                    top_moves=top_moves
-                ))
-
-        return evaluations
+        return nodes
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(500, detail=str(e))

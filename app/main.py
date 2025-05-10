@@ -1,15 +1,28 @@
 from fastapi import FastAPI, Request
-from app.routes import games, profile, analyse_fen, analyse_pgn, openings, phase, explain_lines, coach_chat, fen_feature_extraction, player_recent_games
 from fastapi.middleware.cors import CORSMiddleware
+
+from app.routes import (
+    analyse_fen,
+    analyse_pgn,
+    coach_chat,
+    explain_lines,
+    fen_feature_extraction,
+    games,
+    openings,
+    phase,
+    player_recent_games,
+    profile,
+)
 
 app = FastAPI()
 
 origins = [
-    "http://localhost:5173",           # Local dev
-    "https://blunderfixer.com",        # Production frontend
-    "https://www.blunderfixer.com",    # Production alias (just in case)
-    "https://blunderfixer.vercel.app", # Preview (Staging) frontend
+    "http://localhost:5173",  # Local dev
+    "https://blunderfixer.com",  # Production frontend
+    "https://www.blunderfixer.com",  # Production alias (just in case)
+    "https://blunderfixer.vercel.app",  # Preview (Staging) frontend
 ]
+
 
 # 🌟 Middleware to log Origin header for every request
 @app.middleware("http")
@@ -22,13 +35,6 @@ async def log_origin_header(request: Request, call_next):
     response = await call_next(request)
     return response
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,8 +44,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(analyse_fen.router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(analyse_pgn.router)
+app.include_router(analyse_fen.router)
 app.include_router(coach_chat.router)
 app.include_router(explain_lines.router)
 app.include_router(fen_feature_extraction.router)
@@ -50,11 +64,10 @@ app.include_router(profile.router)
 app.include_router(player_recent_games.router)
 
 
-
-
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
 
 @app.get("/")
 def root():

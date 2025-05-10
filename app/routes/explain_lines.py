@@ -95,7 +95,7 @@ def build_prompt(
         )
         moves_snippet = " → ".join(ln.moves[:5])
         line_texts.append(
-            f"#{ln.rank} (depth {ln.searchDepth}) | Eval: {score} | Line: {moves_snippet}{' …' if len(ln.moves)>5 else ''}"
+            f"#{ln.rank} (depth {ln.depth}) | Eval: {score} | Line: {moves_snippet}{' …' if len(ln.moves)>5 else ''}"
         )
     lines_block = "\n".join(line_texts)
 

@@ -45,7 +45,7 @@ class LineInfo(BaseModel):
     moves: List[str]  # SAN moves, e.g. ["e4","e5","Nf3",…]
     scoreCP: Optional[int] = None  # centipawn score, if any
     mateIn: Optional[int] = None  # mate-in N, if any
-    searchDepth: int  # the depth you ran
+    depth: int  # the depth you ran
 
 
 class ExplanationRequest(BaseModel):
