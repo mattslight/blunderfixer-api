@@ -1,14 +1,16 @@
 import io
+import os
 import traceback
 
 import chess.engine
 import chess.pgn
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 router = APIRouter()
 
-STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # or wherever you deploy
+STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/opt/homebrew/bin/stockfish")
 
 # ─── Request & Response models ──────────────────────────────────────────
 
@@ -49,25 +51,40 @@ def analyse_shallow(req: AnalyseShallowRequest):
         with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
             half_idx = 0
             for move in game.mainline_moves():
-                # evaluate *before* the move
-                info = engine.analyse(board, chess.engine.Limit(depth=req.depth))
-                score = info["score"].white()
-                eval_cp = (
-                    float(score.score() / 1.0)
-                    if not score.is_mate()
-                    else (1e4 if score.mate() > 0 else -1e4)
-                )
+                # defensive: skip bad positions (missing kings etc.)
+                if board.king(chess.WHITE) is None or board.king(chess.BLACK) is None:
+                    print(f"❌ Skipping move {half_idx}: missing king(s)")
+                    board.push(move)
+                    half_idx += 1
+                    continue
 
-                nodes.append(
-                    ShallowNode(
-                        half_move_index=half_idx,
-                        fen=board.fen(),
-                        eval_cp=eval_cp,
-                        delta_cp=half_idx == 0 and 0.0 or eval_cp - prev_eval,
+                try:
+                    info = engine.analyse(board, chess.engine.Limit(depth=req.depth))
+                    score_obj = info.get("score")
+                    if score_obj is None:
+                        raise ValueError("Missing score in engine output")
+
+                    score = score_obj.white()
+                    eval_cp = (
+                        float(score.score())
+                        if not score.is_mate()
+                        else (1e4 if score.mate() > 0 else -1e4)
                     )
-                )
 
-                prev_eval = eval_cp
+                    nodes.append(
+                        ShallowNode(
+                            half_move_index=half_idx,
+                            fen=board.fen(),
+                            eval_cp=eval_cp,
+                            delta_cp=0.0 if half_idx == 0 else eval_cp - prev_eval,
+                        )
+                    )
+
+                    prev_eval = eval_cp
+
+                except Exception as inner:
+                    print(f"⚠️ Skipped move {half_idx} due to engine error: {inner}")
+
                 board.push(move)
                 half_idx += 1
 
