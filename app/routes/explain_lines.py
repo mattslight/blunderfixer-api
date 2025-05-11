@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import Any, Dict, List
 
@@ -11,6 +12,16 @@ from app.schemas import LineInfo
 load_dotenv()
 router = APIRouter()
 
+DEBUG = os.getenv("DEBUG", "").lower() in ("1", "true", "yes")
+
+# configure a logger
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+
+# configue open ai
 openai_api_key = os.getenv("OPENAI_API_KEY")
 if not openai_api_key:
     raise HTTPException(
@@ -20,22 +31,29 @@ if not openai_api_key:
 client = openai.OpenAI(api_key=openai_api_key)
 
 
+# handle router request
 @router.post("/explain-lines", summary="Get Coach Explanation")
 def get_explanation(req: ExplanationRequest):
     prompt = build_prompt(req.fen, req.lines, req.legal_moves, req.features)
+    # log the exact prompt when DEBUG=1
+    logger.debug("📝 [DEBUG] Prompt sent to LLM:\n%s", prompt)
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
-            temperature=1,
-            max_completion_tokens=500,
+            temperature=0.3,
+            max_completion_tokens=200,
+            frequency_penalty=0.5,
+            presence_penalty=0.0,
         )
+        # log the entire raw response object in DEBUG
+        # logger.debug("📦 [DEBUG] Raw LLM response:\n%s", response)
         explanation = response.choices[0].message.content
-        print("🧠 Explanation Response:", explanation)
+        logger.info("🧠 Explanation Response: %s", explanation)
         return {"explanation": explanation}
     except Exception as e:
-        print("🔥 Error during OpenAI call:", str(e))
+        logger.error("🔥 Error during OpenAI call: %s", e, exc_info=DEBUG)
         return {"error": str(e)}
 
 
@@ -152,5 +170,10 @@ def build_prompt(
             6. No robotic listing of moves without ideas.
 
             🏁 Coach with energy, precision, and clarity.
-              """
+
+            ⚠️ **RESPONSE REQUIREMENTS:**  
+            - **Max 5 sentences**
+            - **Include Quick Table**  
+            - **Under 150 words**  
+            """
     return prompt
