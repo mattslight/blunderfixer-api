@@ -1,96 +1,119 @@
 import io
 import os
 import traceback
+from typing import List, Optional
 
 import chess.engine
 import chess.pgn
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 router = APIRouter()
 
 STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "/opt/homebrew/bin/stockfish")
 
-# ─── Request & Response models ──────────────────────────────────────────
-
 
 class AnalyseShallowRequest(BaseModel):
     pgn: str
-    depth: int = Query(8, ge=1, le=40, description="Stockfish search depth")
+    depth: int = Query(12, ge=1, le=40, description="Stockfish search depth")
 
 
-class ShallowNode(BaseModel):
-    half_move_index: int  # 0 = before White’s 1st move, 1 = before Black’s 1st…
-    fen: str  # position FEN
-    eval_cp: float  # centipawn score (positive = White better)
-    delta_cp: float  # this.eval_cp – previous.eval_cp
-
-
-# ─── Endpoint ────────────────────────────────────────────────────────────
+class AnalysisNodeResponse(BaseModel):
+    half_move_index: int  # 1 = after White’s 1st, 2 = after Black’s reply, …
+    side: str  # "white" or "black"
+    move_number: int  # PGN move number
+    san: str  # SAN of the move
+    uci: str  # UCI of the move
+    fen_before: str  # FEN of the position before the move
+    fen_after: str  # FEN after the move
+    eval_before: float  # centipawns before
+    eval_after: float  # centipawns after
+    delta_cp: float  # eval_after − eval_before
+    mate_in: Optional[int]  # +N if White mates in N, −N if Black mates in N
+    depth: int  # the search depth used
 
 
 @router.post(
     "/analyse-pgn",
-    response_model=list[ShallowNode],
-    summary="Quick, depth-N evaluation of every ply in a PGN",
+    response_model=List[AnalysisNodeResponse],
+    summary="Depth-N evaluation for every ply in a PGN (full data)",
 )
 def analyse_shallow(req: AnalyseShallowRequest):
     try:
-        # parse PGN
+        # ── Parse PGN ────────────────────────────────────────────
         pgn_io = io.StringIO(req.pgn)
         game = chess.pgn.read_game(pgn_io)
         if game is None:
             raise HTTPException(400, "Invalid PGN")
 
         board = game.board()
-        nodes: list[ShallowNode] = []
-        prev_eval = 0.0
+        nodes: List[AnalysisNodeResponse] = []
 
-        # spawn Stockfish once for the whole scan
+        # ── Spawn Stockfish once ────────────────────────────────
         with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as engine:
-            half_idx = 0
+            # 1) get initial eval for “before first move”
+            init_info = engine.analyse(board, chess.engine.Limit(depth=req.depth))
+            init_score = init_info["score"].white()
+            if init_score.is_mate():
+                prev_eval = 1e4 if init_score.mate() > 0 else -1e4
+            else:
+                prev_eval = float(init_score.score())
+
+            half_idx = 1
             for move in game.mainline_moves():
-                # defensive: skip bad positions (missing kings etc.)
-                if board.king(chess.WHITE) is None or board.king(chess.BLACK) is None:
-                    print(f"❌ Skipping move {half_idx}: missing king(s)")
-                    board.push(move)
-                    half_idx += 1
-                    continue
+                # capture “before” state
+                fen_before = board.fen()
+                eval_before = prev_eval
+                move_san = board.san(move)
+                move_uci = move.uci()
+                side = "white" if half_idx % 2 == 1 else "black"
+                move_number = (half_idx + 1) // 2
 
-                try:
-                    info = engine.analyse(board, chess.engine.Limit(depth=req.depth))
-                    score_obj = info.get("score")
-                    if score_obj is None:
-                        raise ValueError("Missing score in engine output")
-
-                    score = score_obj.white()
-                    eval_cp = (
-                        float(score.score())
-                        if not score.is_mate()
-                        else (1e4 if score.mate() > 0 else -1e4)
-                    )
-
-                    nodes.append(
-                        ShallowNode(
-                            half_move_index=half_idx,
-                            fen=board.fen(),
-                            eval_cp=eval_cp,
-                            delta_cp=0.0 if half_idx == 0 else eval_cp - prev_eval,
-                        )
-                    )
-
-                    prev_eval = eval_cp
-
-                except Exception as inner:
-                    print(f"⚠️ Skipped move {half_idx} due to engine error: {inner}")
-
+                # apply the move
                 board.push(move)
+
+                # 2) evaluate “after” state
+                info = engine.analyse(board, chess.engine.Limit(depth=req.depth))
+                score = info["score"].white()
+                if score.is_mate():
+                    mate_in = score.mate()
+                    eval_after = 1e4 if mate_in > 0 else -1e4
+                else:
+                    mate_in = None
+                    eval_after = float(score.score())
+
+                # compute delta
+                delta_cp = eval_after - eval_before
+
+                # record the full node
+                nodes.append(
+                    AnalysisNodeResponse(
+                        half_move_index=half_idx,
+                        side=side,
+                        move_number=move_number,
+                        san=move_san,
+                        uci=move_uci,
+                        fen_before=fen_before,
+                        fen_after=board.fen(),
+                        eval_before=eval_before,
+                        eval_after=eval_after,
+                        delta_cp=delta_cp,
+                        mate_in=mate_in,
+                        depth=req.depth,
+                    )
+                )
+
+                # prepare for next ply
+                prev_eval = eval_after
                 half_idx += 1
 
         return nodes
 
-    except Exception as e:
+    except HTTPException:
+        # propagate 4xx
+        raise
+    except Exception:
+        # log full traceback for 5xx
         print("🔥 Error in /analyse-pgn")
-        print(traceback.format_exc())  # full traceback in Render logs
+        traceback.print_exc()
         raise HTTPException(500, detail="Internal error, see server logs")
