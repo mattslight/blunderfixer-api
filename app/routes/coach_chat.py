@@ -1,3 +1,4 @@
+import logging
 import os
 
 import openai
@@ -11,6 +12,15 @@ router = APIRouter()
 
 openai_api_key = os.getenv("OPENAI_API_KEY")
 client = openai.OpenAI(api_key=openai_api_key)
+
+DEBUG = os.getenv("DEBUG", "").lower() in ("1", "true", "yes")
+
+# configure a logger
+logger = logging.getLogger(__name__)  # no `const`
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+logger.addHandler(handler)
+logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)
 
 
 class CoachChatRequest(BaseModel):
@@ -63,11 +73,16 @@ def coach_chat(req: CoachChatRequest):
     try:
         system_prompt = build_coach_chat_prompt(req.fen, req.legal_moves)
 
+        # 👉 DEBUG log the system prompt
+        logger.debug("📝 [DEBUG] System prompt sent to LLM:\n%s", system_prompt)
+
         messages = (
             [{"role": "system", "content": system_prompt}]
             + req.past_messages
             + [{"role": "user", "content": req.user_message}]
         )
+        # DEBUG: log the full message payload
+        logger.debug("📝 [DEBUG] Messages payload:\n%s", messages)
 
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -80,6 +95,11 @@ def coach_chat(req: CoachChatRequest):
 
         reply = response.choices[0].message.content.strip()
 
+        # INFO: log the final reply
+        logger.info("🧠 Coach reply: %s", reply)
+
         return {"reply": reply}
+
     except Exception as e:
+        logger.error("🔥 Error in /coach-chat: %s", e, exc_info=DEBUG)
         return {"error": str(e)}

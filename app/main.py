@@ -5,6 +5,7 @@ from app.routes import (
     analyse_fen,
     analyse_pgn,
     analyse_pgn_full,
+    coach,
     coach_chat,
     explain_lines,
     fen_feature_extraction,
@@ -50,6 +51,7 @@ app.include_router(analyse_pgn.router)
 app.include_router(analyse_pgn_full.router)
 app.include_router(analyse_fen.router)
 app.include_router(coach_chat.router)
+app.include_router(coach.router)
 app.include_router(explain_lines.router)
 app.include_router(fen_feature_extraction.router)
 app.include_router(games.router)
