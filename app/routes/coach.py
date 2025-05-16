@@ -158,30 +158,42 @@ Your replies should be concise, actionable, and focused on practical advice.
 {special}
 
 🎯 REQUEST RULES:
-- If the user asks about a move in free form (e.g. “Is castles here good?”, “What about bishop takes?”):
-  1. Look at your `legal_moves` list and filter for any that match the user’s phrase:
-     - For “castles”, match `O-O` and `O-O-O`.
-     - For “bishop takes”, match any SAN that starts with `B` and contains `x`.
-  2. If exactly **one** candidate remains, treat that as the move and proceed to step 3.
-  3. If **multiple** candidates remain, ask a brief clarifying question:
+- Whenever you suggest moves use **bold** formatting. When comparing moves, use a Markdown table with columns: Move | Pros | Cons.
+- When the user mentions a move in free form (e.g. “bishop to e4 looks good”, “Is castles here good?”, “should I play c3?”):
+  1. Try to parse it as SAN or castling:
+     - Must match SAN grammar:  
+       ^([KQRBN])?[a-h]?[1-8]?x?[a-h][1-8](=[QRBN])?[+#]?$  
+       or ^O-O(-O)?$
+  2. If it doesn’t match, reply:  
+     “❓ I’m not familiar with that notation (‘Zf3’). Could you check the move and try again?”
+  3. Otherwise, check if that SAN is in `legal_moves`:
+     • If not, reply:  
+       “❌ That move is not legal in this position.”  
+       Then suggest 1–3 strong legal alternatives using a Markdown table with columns: Move | Pros | Cons.  
+     • If it is, proceed to step 4.
+  4. If more than one legal move could match a vague phrase (like “bishop takes”), ask:  
      “Which capture did you mean – **Bxd5** or **Bxe6**?”
-  4. Once disambiguated,
-     - only call analyze_move_in_stockfish if that UCI is **not** present in 🧭  Top continuations. 
-     - If it **is** present, base your reply on the corresponding line.
-- If user message starts with "Hint:", give a subtle nudge based on themes of the line—do NOT name the exact best move or give a direct hint.
-- If the user’s message begins with “Full analysis:”, respond with:
-  • A concise 3–5 sentence strategic overview.
-  • A Markdown table with columns Move | Pros | Cons summarizing the top continuations.
-- Otherwise, answer the user's free-form question directly.
+  5. Once disambiguated:
+     - If the move appears in 🧭 Top continuations, base your reply on that line.
+     - Otherwise, call `analyze_move_in_stockfish`.
+  6. If comparing two legal moves (e.g. “c3 or castles”), respond with a Markdown table with columns: Move | Pros | Cons. Do not use bullet points.
+- If the user’s message starts with “Hint:”, give a subtle thematic nudge—do not name the exact best move.
+- If the user’s message begins with “Full analysis:”, provide:
+  • A concise 3–5 sentence strategic overview.  
+  • A Markdown table with columns: Move | Pros | Cons summarising the top continuations.
+- Otherwise, answer the user’s free-form question directly, **using Markdown tables**.
+- *** Never use bullets outside of rule formatting. ***
+
 
 🧠 Focus on:
 - Practical, actionable advice
 - Short replies (2–4 sentences)
 - Bold key moves (e.g., **d4**, **Bc4**)
 - Use light emojis 🎯🔥🏆 to highlight ideas
-- If asked about a move (e.g., "Is b4 good?"), start with a Quick Verdict:
-    - ✅ Good idea because...
-    - ⚠️ Risky move because...
+- If asked about a single move (e.g., "Is b4 good?"), start with a Quick Verdict:
+    - ✅ Good / ⚠️ Risky move because...
+    - Show the pros and cons in a Markdown table with columns: Move | Pros | Cons.
+- If comparing moves (e.g., "c3 or castles"), use a Markdown table with columns: Move | Pros | Cons.
 """.strip()
 
 
@@ -189,8 +201,8 @@ Your replies should be concise, actionable, and focused on practical advice.
 stockfish_fn = {
     "name": "analyze_move_in_stockfish",
     "description": (
-        "Evaluate whether a single UCI move is good or bad by returning "
-        "the centipawn score and mate information."
+        "Evaluate a single UCI move on a given FEN by returning its "
+        "centipawn score and mate distance."
     ),
     "parameters": {
         "type": "object",
@@ -198,7 +210,6 @@ stockfish_fn = {
             "fen": {"type": "string"},
             "uci": {"type": "string"},
             "depth": {"type": "integer", "default": 20},
-            "multipv": {"type": "integer", "default": 3},
         },
         "required": ["fen", "uci"],
     },
@@ -206,32 +217,13 @@ stockfish_fn = {
         "type": "object",
         "properties": {
             "uci": {"type": "string"},
-            "single_move_score": {"type": "integer"},
-            "single_move_mate": {"type": ["integer", "null"]},
-            "lines": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "moves": {"type": "array", "items": {"type": "string"}},
-                        "score_centipawns": {"type": "integer"},
-                        "mate": {"type": ["integer", "null"]},
-                        "depth": {"type": "integer"},
-                        "multipv_rank": {"type": "integer"},
-                    },
-                    "required": [
-                        "moves",
-                        "score_centipawns",
-                        "mate",
-                        "depth",
-                        "multipv_rank",
-                    ],
-                },
-            },
+            "score_centipawns": {"type": "integer"},
+            "mate": {"type": ["integer", "null"]},
         },
-        "required": ["uci", "single_move_score", "lines"],
+        "required": ["uci", "score_centipawns", "mate"],
     },
 }
+
 
 # ── Unified /coach endpoint ─────────────────────────────────────────────────────
 router = APIRouter()
@@ -255,7 +247,7 @@ def coach(req: CoachRequest):
     #  Lines: use FE-supplied if present, otherwise quick fallback
     if req.lines is None:
         info_list = engine.analyse(
-            chess.Board(req.fen), limit=chess.engine.Limit(depth=12), multipv=3
+            chess.Board(req.fen), limit=chess.engine.Limit(depth=12), multipv=7
         )
         lines: List[LineInfo] = []
         for idx, info in enumerate(info_list, start=1):
@@ -301,7 +293,7 @@ def coach(req: CoachRequest):
         messages=[m.dict() for m in history],
         functions=[stockfish_fn],
         function_call="auto",
-        temperature=0.3,
+        temperature=0,
     )
     msg = resp.choices[0].message
 
