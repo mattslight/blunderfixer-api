@@ -52,6 +52,7 @@ class CoachRequest(BaseModel):
     legal_moves: List[str]
     lines: Optional[List[LineInfo]] = None
     features: Optional[Dict[str, Any]] = None
+    hero_side: Optional[str] = None  # 'w' or 'b'
 
 
 class CoachResponse(BaseModel):
@@ -65,8 +66,11 @@ def build_coach_system_prompt(
     legal_moves: List[str],
     lines: List[LineInfo],
     features: Dict[str, Any],
+    hero_side: str,
 ) -> str:
     feat = features or {}
+
+    perspective = "White" if hero_side.lower() == "w" else "Black"
 
     # highlights...
     highlights = []
@@ -141,6 +145,7 @@ def build_coach_system_prompt(
 
     return f"""
 You are a world-class chess coach advising club-level players (rating 800–1800).
+You are coaching **{perspective}** in this game.
 Your replies should be concise, actionable, and focused on practical advice.
 
 🎯 Current Position (FEN): {fen}
@@ -271,7 +276,9 @@ def coach(req: CoachRequest):
 
     # ── 1) Seed system prompt (only once) ──────────────────────────────────────
     if not any(m.role == "system" for m in req.past_messages):
-        sys_msg = build_coach_system_prompt(req.fen, req.legal_moves, lines, features)
+        sys_msg = build_coach_system_prompt(
+            req.fen, req.legal_moves, lines, features, req.hero_side or "w"
+        )
         history = [Message(role="system", content=sys_msg)] + req.past_messages
     else:
         history = req.past_messages.copy()
