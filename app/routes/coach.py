@@ -70,6 +70,12 @@ def build_coach_system_prompt(
 ) -> str:
     feat = features or {}
 
+    header = (
+        "?? All evals & material figures are from White's POV:\n"
+        "  - Positive = White ahead\n"
+        "  - Negative = Black ahead\n\n"
+    )
+
     perspective = "White" if hero_side.lower() == "w" else "Black"
 
     # highlights...
@@ -105,11 +111,14 @@ def build_coach_system_prompt(
 
     highlight_text = " • ".join(highlights) if highlights else "None"
 
-    # positional summary...
+    # positional summary with unambiguous material line using extractor 'balance' & 'advantage'
+    mat = feat.get("material", {})
+    bal = mat.get("balance", 0)
+    adv = mat.get("advantage", "equal")
     summary = (
-        f"Position Features:\n"
-        f"• Material: {feat.get('material', {}).get('advantage','?')} "
-        f"{feat.get('material',{}).get('balance','?')}\n"
+        "Position Features:\n"
+        f"� Material (�pawns): {bal:+d} ({adv} by {abs(bal)} pawn"
+        f"{'s' if abs(bal)!=1 else ''})\n"
         f"• King safety: White({feat.get('safety',{}).get('king',{}).get('white',{}).get('status','?')}), "
         f"Black({feat.get('safety',{}).get('king',{}).get('black',{}).get('status','?')})\n"
         f"• Open files: {', '.join(feat.get('lines',{}).get('open_files',[])) or 'none'}\n"
@@ -118,7 +127,8 @@ def build_coach_system_prompt(
         f"• Open diagonals: {', '.join(feat.get('lines',{}).get('diagonals',{}).get('open',[])) or 'none'}"
     )
 
-    # lines block...
+    # lines block... prepend a reminder about eval‐sign before listing continuations
+    eval_header = "Negative eval = Black better; Positive = White better\n"
     line_texts = []
     for ln in lines:
         score = (
@@ -131,7 +141,7 @@ def build_coach_system_prompt(
         line_texts.append(
             f"#{ln.rank} (depth {ln.depth}) | Eval: {score} | Line: {snippet}{suffix}"
         )
-    lines_block = "\n".join(line_texts) or "None"
+    lines_block = eval_header + ("\n".join(line_texts) or "None")
 
     legal_moves_text = ", ".join(legal_moves) if legal_moves else "No legal moves"
 
@@ -163,6 +173,13 @@ Your replies should be concise, actionable, and focused on practical advice.
 {special}
 
 🎯 REQUEST RULES:
+- Whenever you reference a specific move (SAN or UCI), you **must** call the function
+   `analyze_move_in_stockfish` *before* generating any explanatory text.
+- **Blend the engine eval, the principal variation, and the extracted features into a single cohesive insight.**  
+For example:  
+> After **Qb5**, Black's score of -1.27 reflects both the extra pawn and White's cramped queen-side.  
+> Your passed pawn on d5 is a long-term asset, but your king's pawn shield is slightly weakened,  
+> so exchanging queens now would concede that dynamic edge. 
 - Whenever you suggest moves use **bold** formatting. When comparing moves, use a Markdown table with columns: Move | Pros | Cons.
 - When the user mentions a move in free form (e.g. “bishop to e4 looks good”, “Is castles here good?”, “should I play c3?”):
   1. Try to parse it as SAN or castling:
@@ -191,8 +208,16 @@ Your replies should be concise, actionable, and focused on practical advice.
 
 
 🧠 Focus on:
-- Practical, actionable advice
-- Short replies (2–4 sentences)
+ - Draw on truths in your "why" explanations. Examples include, only talk about what is relevant to the position.
+   - Material balance  
+   - Passed pawns  
+   - Space advantage  
+   - King safety  
+   - Weak squares  
+   - Mobility & piece activity  
+   - Any hanging/loose pieces  
+- **Ultra-concise:** max 2 sentences per reply, no bullet lists
+- Embed any “why” points directly in those sentences
 - Bold key moves (e.g., **d4**, **Bc4**)
 - Use light emojis 🎯🔥🏆 to highlight ideas
 - If asked about a single move (e.g., "Is b4 good?"), start with a Quick Verdict:
@@ -206,17 +231,26 @@ Your replies should be concise, actionable, and focused on practical advice.
 stockfish_fn = {
     "name": "analyze_move_in_stockfish",
     "description": (
-        "Evaluate a single UCI move on a given FEN by returning its "
-        "centipawn score and mate distance."
+        "Evaluate a single chess move (either SAN, e.g. 'Rc8', or UCI, e.g. 'a8c8') "
+        "on a given FEN. Returns the resulting centipawn score, mate distance, "
+        "and principal variation."
     ),
     "parameters": {
         "type": "object",
         "properties": {
             "fen": {"type": "string"},
-            "uci": {"type": "string"},
-            "depth": {"type": "integer", "default": 20},
+            "move_str": {
+                "type": "string",
+                "description": "Move in SAN (e.g. 'Rc8') or UCI (e.g. 'a8c8')",
+            },
+            "depth": {"type": "integer", "default": 18},
+            "multipv": {
+                "type": "integer",
+                "default": 1,
+                "description": "How many PV lines to return; top line is used",
+            },
         },
-        "required": ["fen", "uci"],
+        "required": ["fen", "move_str"],
     },
     "returns": {
         "type": "object",
@@ -224,8 +258,12 @@ stockfish_fn = {
             "uci": {"type": "string"},
             "score_centipawns": {"type": "integer"},
             "mate": {"type": ["integer", "null"]},
+            "delta": {
+                "type": "integer",
+                "description": "Score change vs. engine’s best move (negative = lost material)",
+            },
         },
-        "required": ["uci", "score_centipawns", "mate"],
+        "required": ["uci", "score_centipawns", "mate", "delta"],
     },
 }
 
@@ -315,16 +353,33 @@ def coach(req: CoachRequest):
         if DEBUG:
             print("  → function call:", msg.function_call.name, args)
 
-        result = analyze_move_in_stockfish(args["fen"], args["uci"])
-        if DEBUG:
-            print("  ← function result:", result)
-
-        history.append(Message(role="assistant", content=msg.content or ""))
-        history.append(
-            Message(
-                role="function", name=msg.function_call.name, content=json.dumps(result)
-            )
+        result = analyze_move_in_stockfish(
+            args["fen"],
+            args["move_str"],
+            depth=args.get("depth", 18),
+            multipv=args.get("multipv", 1),
         )
+        if DEBUG:
+            print("  ? function result:", result)
+
+        # Insert error handling before appending function result
+        if "error" in result:
+            # Gracefully handle analysis failure
+            history.append(
+                Message(
+                    role="assistant",
+                    content=f"?? Analysis unavailable: {result['error']}",
+                )
+            )
+        else:
+            history.append(Message(role="assistant", content=msg.content or ""))
+            history.append(
+                Message(
+                    role="function",
+                    name=msg.function_call.name,
+                    content=json.dumps(result),
+                )
+            )
 
         # 5) Follow-up LLM call
         follow = client.chat.completions.create(
