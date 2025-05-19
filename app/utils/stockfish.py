@@ -1,5 +1,5 @@
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import chess
 import chess.engine
@@ -7,39 +7,48 @@ import chess.engine
 ENGINE_PATH = os.getenv("STOCKFISH_PATH", "/usr/bin/stockfish")
 
 
+def _classify_delta(delta: int, rank: int = 0) -> str:
+    if rank == 1 and delta == 0:
+        return "⭐️ Top move"
+    if delta < 20:
+        return "✅ Good move"
+    if delta < 50:
+        return "⚠️ OK move"
+    if delta < 100:
+        return "⚠️ Risky move"
+    return "❌ Bad move"
+
+
 def analyze_move_in_stockfish(
     fen: str,
     move_str: str,
-    depth: int = 20,
+    depth: int = 18,
     multipv: int = 1,
+    top_lines: Optional[List[Dict[str, Union[List[str], int]]]] = None,
 ) -> Dict[str, Any]:
     """
-    Safely apply a move (UCI or SAN) on `fen`, run Stockfish to `depth` with `multipv`,
-    and return a structured result including eval, mate, and principal variation.
-    Error conditions produce an 'error' key instead of raising.
+    top_lines: optional list of dicts like {'moves': [...], 'scoreCP': int}, ordered by rank.
     """
     result: Dict[str, Any] = {"fen": fen, "input": move_str}
 
-    # 1) Parse the FEN
+    # 1) parse FEN
     try:
         board = chess.Board(fen)
     except Exception as e:
         result["error"] = f"Invalid FEN: {e}"
         return result
 
-    # 2) Determine mover_color (always the side to move before push)
-    mover_color = board.turn
+    # 2) determine mover_color
+    mover = board.turn
 
-    # 3) Try UCI first
-    move_obj: Optional[chess.Move] = None
+    # 3) find the Move object
+    move_obj = None
     try:
         candidate = chess.Move.from_uci(move_str)
         if candidate in board.legal_moves:
             move_obj = candidate
     except Exception:
         pass
-
-    # 4) Fallback to SAN
     if move_obj is None:
         try:
             move_obj = board.parse_san(move_str)
@@ -47,42 +56,59 @@ def analyze_move_in_stockfish(
             result["error"] = f"Could not interpret move '{move_str}'"
             return result
 
-    # 5) Open engine once, get baseline & post?move eval
+    # 4) if we have top_lines, try to match
+    if top_lines:
+        top_score = top_lines[0]["scoreCP"]
+        for line in top_lines:
+            first = line["moves"][0]
+            # allow matching SAN or UCI
+            if first.lower() == move_str.lower() or first == move_obj.uci():
+                rank = line["rank"]  # ? pull the rank out
+                new_score = line["scoreCP"]
+                delta = abs(top_score - new_score)
+                result.update(
+                    {
+                        "uci": move_obj.uci(),
+                        "score_centipawns": new_score,
+                        "delta": delta,
+                        "verdict": _classify_delta(delta, rank),
+                        "pv": line["moves"],
+                    }
+                )
+                return result
+
+    # 5) otherwise fall back to full Stockfish
     try:
         with chess.engine.SimpleEngine.popen_uci(ENGINE_PATH) as eng:
-            # 5a) Baseline eval BEFORE the move
-            baseline = eng.analyse(board, limit=chess.engine.Limit(depth=depth))
-            eval0 = baseline["score"].pov(board.turn).score(mate_score=1_000_000)
+            # baseline
+            base_info = eng.analyse(board, limit=chess.engine.Limit(depth=depth))
+            base_cp = base_info["score"].pov(mover).score(mate_score=1_000_000)
 
-            # 5b) Push the move and record its UCI
+            # push & analyse
             board.push(move_obj)
             result["uci"] = move_obj.uci()
-
-            # 5c) Analysis AFTER the move
             info = eng.analyse(
-                board,
-                limit=chess.engine.Limit(depth=depth),
-                multipv=multipv,
+                board, limit=chess.engine.Limit(depth=depth), multipv=multipv
             )
     except Exception as e:
         result["error"] = f"Engine failure: {e}"
         return result
 
-    # 7) Normalize multipv output (list → single dict)
+    # 6) normalize & extract
     if isinstance(info, list):
         info = info[0]
+    pov = info["score"].pov(mover)
+    new_cp = pov.score(mate_score=1_000_000)
+    delta = abs(base_cp - new_cp)
+    pv = info.get("pv", [])
 
-    # 8) Extract evaluation and mate distance
-    score = info.get("score")
-    if score is not None:
-        pov = score.pov(mover_color)
-        result["score_centipawns"] = pov.score(mate_score=1_000_000)
-        result["mate"] = pov.mate()
-        # 8a) Compute delta vs. baseline
-        result["delta"] = result["score_centipawns"] - eval0
-
-    # 9) Extract principal variation
-    pv = info.get("pv") or []
-    result["pv"] = [m.uci() for m in pv]
-
+    result.update(
+        {
+            "score_centipawns": new_cp,
+            "mate": pov.mate(),
+            "delta": delta,
+            "verdict": _classify_delta(delta),
+            "pv": [m.uci() for m in pv],
+        }
+    )
     return result

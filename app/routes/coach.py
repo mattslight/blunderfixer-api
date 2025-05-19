@@ -172,10 +172,11 @@ Your replies should be concise, actionable, and focused on practical advice.
 
 {special}
 
+{header}
+
 🎯 REQUEST RULES:
-- Whenever you reference a specific move (SAN or UCI), you **must** call the function
-   `analyze_move_in_stockfish` *before* generating any explanatory text.
-- **Blend the engine eval, the principal variation, and the extracted features into a single cohesive insight.**  
+- Whenever a specific move is mentioned, you **must** first check its eval by call `analyze_move_in_stockfish` *before* explaining.
+- **Blend the eval, the principal variation, and the extracted features into a single cohesive insight.**  
 For example:  
 > After **Qb5**, Black's score of -1.27 reflects both the extra pawn and White's cramped queen-side.  
 > Your passed pawn on d5 is a long-term asset, but your king's pawn shield is slightly weakened,  
@@ -190,7 +191,7 @@ For example:
      “❓ I’m not familiar with that notation (‘Zf3’). Could you check the move and try again?”
   3. Otherwise, check if that SAN is in `legal_moves`:
      • If not, reply:  
-       “❌ That move is not legal in this position.”  
+       “⛔️ That move is not legal in this position.”  
        Then suggest 1–3 strong legal alternatives using a Markdown table with columns: Move | Pros | Cons.  
      • If it is, proceed to step 4.
   4. If more than one legal move could match a vague phrase (like “bishop takes”), ask:  
@@ -221,7 +222,7 @@ For example:
 - Bold key moves (e.g., **d4**, **Bc4**)
 - Use light emojis 🎯🔥🏆 to highlight ideas
 - If asked about a single move (e.g., "Is b4 good?"), start with a Quick Verdict:
-    - ✅ Good / ⚠️ Risky move because...
+    - ⭐️ Top / ✅ Good / ⚠️ Risky / ❌ Bad move etc. because...
     - Show the pros and cons in a Markdown table with columns: Move | Pros | Cons.
 - If comparing moves (e.g., "c3 or castles"), use a Markdown table with columns: Move | Pros | Cons.
 """.strip()
@@ -249,6 +250,18 @@ stockfish_fn = {
                 "default": 1,
                 "description": "How many PV lines to return; top line is used",
             },
+            "top_lines": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "moves": {"type": "array", "items": {"type": "string"}},
+                        "scoreCP": {"type": "integer"},
+                    },
+                    "required": ["moves", "scoreCP"],
+                },
+                "description": "Your pre-computed PVs & centipawn scores from the shallow engine pass",
+            },
         },
         "required": ["fen", "move_str"],
     },
@@ -262,8 +275,12 @@ stockfish_fn = {
                 "type": "integer",
                 "description": "Score change vs. engine’s best move (negative = lost material)",
             },
+            "verdict": {
+                "type": "string",
+                "description": "One of ⭐️ Top move, ✅ Good move, ⚠️ OK move, ⚠️ Risky move, ❌ Bad move",
+            },
         },
-        "required": ["uci", "score_centipawns", "mate", "delta"],
+        "required": ["uci", "score_centipawns", "mate", "delta", "verdict"],
     },
 }
 
@@ -290,7 +307,7 @@ def coach(req: CoachRequest):
     #  Lines: use FE-supplied if present, otherwise quick fallback
     if req.lines is None:
         info_list = engine.analyse(
-            chess.Board(req.fen), limit=chess.engine.Limit(depth=12), multipv=7
+            chess.Board(req.fen), limit=chess.engine.Limit(depth=18), multipv=9
         )
         lines: List[LineInfo] = []
         for idx, info in enumerate(info_list, start=1):
@@ -353,11 +370,16 @@ def coach(req: CoachRequest):
         if DEBUG:
             print("  → function call:", msg.function_call.name, args)
 
+        top_lines_payload = [
+            {"moves": l.moves, "scoreCP": l.scoreCP, "rank": l.rank} for l in lines[:7]
+        ]
+
         result = analyze_move_in_stockfish(
-            args["fen"],
-            args["move_str"],
+            fen=req.fen,
+            move_str=args["move_str"],
             depth=args.get("depth", 18),
             multipv=args.get("multipv", 1),
+            top_lines=top_lines_payload,
         )
         if DEBUG:
             print("  ? function result:", result)
