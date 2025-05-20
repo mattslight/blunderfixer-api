@@ -200,7 +200,7 @@ For example:
      - If the move appears in 🧭 Top continuations, base your reply on that line.
      - Otherwise, call `analyze_move_in_stockfish`.
   6. If comparing two legal moves (e.g. “c3 or castles”), respond with a Markdown table with columns: Move | Pros | Cons. Do not use bullet points.
-- If the user’s message starts with “Hint:”, give a subtle thematic nudge—do not name the exact best move.
+- If the user’s message starts with “Hint:”, give a subtle thematic nudge based on the 🧭 Top Continuations do not name the exact best move.
 - If the user’s message begins with “Full analysis:”, provide:
   • A concise 3–5 sentence strategic overview.  
   • A Markdown table with columns: Move | Pros | Cons summarising the top continuations.
@@ -291,11 +291,11 @@ router = APIRouter()
 
 @router.post("/coach", response_model=CoachResponse)
 def coach(req: CoachRequest):
-    # ── Debug printing ──────────────────────────────────────────────────────────
-    if DEBUG:
-        print("🔔 /coach hit")
-        print("  FEN:", req.fen)
-        print("  user_message:", repr(req.user_message))
+    # # ── Debug printing ──────────────────────────────────────────────────────────
+    # if DEBUG:
+    #     print("🔔 /coach hit")
+    #     print("  FEN:", req.fen)
+    #     print("  user_message:", repr(req.user_message))
 
     # ── (A) Compute features & lines ────────────────────────────────────────────
     #  Features: server‐side unless overridden
@@ -325,9 +325,9 @@ def coach(req: CoachRequest):
     else:
         lines = req.lines
 
-    if DEBUG:
-        print("  features keys:", list(features.keys()))
-        print("  using lines:", [(l.rank, l.depth) for l in lines])
+    # if DEBUG:
+    #     print("  features keys:", list(features.keys()))
+    #     print("  using lines:", [(l.rank, l.depth) for l in lines])
 
     # ── 1) Seed system prompt (only once) ──────────────────────────────────────
     if not any(m.role == "system" for m in req.past_messages):
@@ -341,13 +341,13 @@ def coach(req: CoachRequest):
     # ── 2) Append user turn ─────────────────────────────────────────────────────
     history.append(Message(role="user", content=req.user_message))
 
-    if DEBUG:
-        # dump the entire system prompt
-        print("SYSTEM PROMPT:\n", sys_msg, "\n" + "-" * 60)
-        # or dump the full message list
-        for m in history:
-            print(f"{m.role.upper():8}: {m.name or ''} {m.content}")
-        print("-" * 60)
+    # if DEBUG:
+    #     # dump the entire system prompt
+    #     print("SYSTEM PROMPT:\n", sys_msg, "\n" + "-" * 60)
+    #     # or dump the full message list
+    #     for m in history:
+    #         print(f"{m.role.upper():8}: {m.name or ''} {m.content}")
+    #     print("-" * 60)
 
     # ── 3) First LLM call (with function‐calling) ───────────────────────────────
     resp = client.chat.completions.create(
@@ -355,7 +355,7 @@ def coach(req: CoachRequest):
         messages=[m.dict() for m in history],
         functions=[stockfish_fn],
         function_call="auto",
-        temperature=0,
+        temperature=0.3,
     )
     msg = resp.choices[0].message
 
