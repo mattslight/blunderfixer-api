@@ -14,3 +14,11 @@ class LineInfo(BaseModel):
     scoreCP: Optional[int] = None  # centipawn score, if any
     mateIn: Optional[int] = None  # mate-in N, if any
     depth: int  # the depth you ran
+
+
+class SyncRequest(BaseModel):
+    username: str
+
+
+class SyncResponse(BaseModel):
+    status: str
