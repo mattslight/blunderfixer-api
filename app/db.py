@@ -10,16 +10,15 @@ from sqlmodel import Session, create_engine
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.db")
 
-# ─── Read & log the URL ────────────────────────────────────────────────────
+# ─── Read the URL ────────────────────────────────────────────────────
 DATABASE_URL = getenv("DATABASE_URL", "sqlite:///./blunderfixer.db")
-logger.info(f"Using DATABASE_URL = {DATABASE_URL!r}")
 
 # ─── Create engine ─────────────────────────────────────────────────────────
 engine = create_engine(DATABASE_URL, echo=True)
 
 # Immediately after creating the engine, log what SQLAlchemy thinks the URL is:
 # this will expand sqlite file paths or canonicalize postgres URLs
-logger.info(f"Engine connected to: {engine.url!s}")
+logger.info(f"🚒 Engine connected to: {engine.url!s}")
 
 
 # ─── Session factory ───────────────────────────────────────────────────────
