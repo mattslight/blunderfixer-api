@@ -4,9 +4,9 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import ArchiveMonth, Job
+from app.models import Job
 from app.schemas import SyncRequest, SyncResponse, SyncStatusResponse
-from app.services import fetch_archives, run_sync_job  # we’ll write run_sync_job next
+from app.services import run_sync_job
 
 router = APIRouter()
 

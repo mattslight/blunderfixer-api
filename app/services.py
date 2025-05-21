@@ -87,6 +87,13 @@ def process_pending_archives():
 # 4) Run the sync job
 # (this is called in the background task)
 def run_sync_job(job_id: str):
+    from datetime import datetime, timezone
+
+    from sqlmodel import Session, select
+
+    from app.db import engine
+    from app.models import ArchiveMonth, Job
+
     with Session(engine) as session:
         job = session.get(Job, job_id)
         job.status = "running"
@@ -94,51 +101,56 @@ def run_sync_job(job_id: str):
         session.add(job)
         session.commit()
 
-        try:
-            months = fetch_archives(job.username)
-            job.total = len(months)
-            job.processed = 0
-            session.add(job)
-            session.commit()
+        months = fetch_archives(job.username)
+        job.total = len(months)
+        job.processed = 0
+        session.add(job)
+        session.commit()
 
-            current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+        current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+        try:
             for month_str, raw in months:
-                # upsert ArchiveMonth as before...
+                # upsert ArchiveMonth with raw_json always set on creation
                 arc = session.exec(
                     select(ArchiveMonth)
                     .where(ArchiveMonth.username == job.username)
                     .where(ArchiveMonth.month == month_str)
                 ).first()
+
                 if not arc:
                     arc = ArchiveMonth(
                         username=job.username,
                         month=month_str,
+                        raw_json=raw,  # ← required!
+                        fetched_at=datetime.now(timezone.utc),
+                        processed=False,
                     )
-                # always overwrite current month or new
-                if month_str == current_month or not arc.fetched_at:
+                elif month_str == current_month:
                     arc.raw_json = raw
                     arc.fetched_at = datetime.now(timezone.utc)
                     arc.processed = False
 
                 session.add(arc)
-                session.commit()
+                session.commit()  # commit each month
 
-                # update job progress
+                # bump progress
                 job.processed += 1
                 job.updated_at = datetime.now(timezone.utc)
                 session.add(job)
                 session.commit()
 
+            # all done
             job.status = "complete"
             job.updated_at = datetime.now(timezone.utc)
             session.add(job)
             session.commit()
 
         except Exception as e:
-            # mark failure
+            session.rollback()
             job.status = "failed"
             job.error = str(e)
             job.updated_at = datetime.now(timezone.utc)
             session.add(job)
             session.commit()
-            raise  # so FastAPI logs the trace too
+            raise
