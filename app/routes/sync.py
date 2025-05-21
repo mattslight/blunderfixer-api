@@ -15,35 +15,50 @@ router = APIRouter()
 @router.post("/sync", response_model=SyncResponse)
 def sync_user(req: SyncRequest, session: Session = Depends(get_session)):
     months = fetch_archives(req.username)
-    # use timezone-aware UTC now
     now = datetime.now(timezone.utc)
     current_month = now.strftime("%Y-%m")
 
-    # load existing ArchiveMonth rows
-    existing_rows = session.exec(
-        select(ArchiveMonth).where(ArchiveMonth.username == req.username)
-    ).all()
-    existing = {arc.month: arc for arc in existing_rows}
+    # pull down existing months
+    existing = {
+        arc.month: arc
+        for arc in session.exec(
+            select(ArchiveMonth).where(ArchiveMonth.username == req.username)
+        )
+    }
+
+    buffer = []
+
+    def flush():
+        """commit and clear the buffer"""
+        session.commit()
+        buffer.clear()
 
     for month_str, raw in months:
         if month_str in existing:
-            # only refresh the current month
-            if month_str == current_month:
-                arc = existing[month_str]
-                arc.raw_json = raw
-                arc.fetched_at = now
-                arc.processed = False
-                session.add(arc)
+            # only overwrite the current month
+            if month_str != current_month:
+                continue
+            arc = existing[month_str]
+            arc.raw_json = raw
+            arc.fetched_at = now
+            arc.processed = False
         else:
-            # new month
-            session.add(
-                ArchiveMonth(
-                    username=req.username,
-                    month=month_str,
-                    raw_json=raw,
-                    fetched_at=now,
-                )
+            arc = ArchiveMonth(
+                username=req.username,
+                month=month_str,
+                raw_json=raw,
+                fetched_at=now,
             )
 
-    session.commit()
+        session.add(arc)
+        buffer.append(arc)
+
+        # once we have 5 pending, commit them
+        if len(buffer) >= 5:
+            flush()
+
+    # commit any remainder
+    if buffer:
+        flush()
+
     return SyncResponse(status="synced")
