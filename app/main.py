@@ -1,19 +1,27 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from sqlmodel import SQLModel
 
+from app.db import engine
 from app.routes import (
     analyse_fen,
     analyse_pgn,
     analyse_pgn_full,
     coach,
     fen_feature_extraction,
-    games,
-    openings,
     phase,
     player_recent_games,
+    sync,
 )
 
 app = FastAPI()
+
+
+# 🌟 Create all tables on startup
+@app.on_event("startup")
+def on_startup():
+    SQLModel.metadata.create_all(engine)
+
 
 origins = [
     "http://localhost:5173",
@@ -49,10 +57,9 @@ app.include_router(analyse_pgn_full.router)
 app.include_router(analyse_fen.router)
 app.include_router(coach.router)
 app.include_router(fen_feature_extraction.router)
-app.include_router(games.router)
-app.include_router(openings.router)
 app.include_router(phase.router)
 app.include_router(player_recent_games.router)
+app.include_router(sync.router)
 
 
 @app.get("/health")
