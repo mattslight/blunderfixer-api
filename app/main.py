@@ -6,14 +6,11 @@ from app.routes import (
     analyse_pgn,
     analyse_pgn_full,
     coach,
-    coach_chat,
-    explain_lines,
     fen_feature_extraction,
     games,
     openings,
     phase,
     player_recent_games,
-    profile,
 )
 
 app = FastAPI()
@@ -50,14 +47,11 @@ app.add_middleware(
 app.include_router(analyse_pgn.router)
 app.include_router(analyse_pgn_full.router)
 app.include_router(analyse_fen.router)
-app.include_router(coach_chat.router)
 app.include_router(coach.router)
-app.include_router(explain_lines.router)
 app.include_router(fen_feature_extraction.router)
 app.include_router(games.router)
 app.include_router(openings.router)
 app.include_router(phase.router)
-app.include_router(profile.router)
 app.include_router(player_recent_games.router)
 
 
