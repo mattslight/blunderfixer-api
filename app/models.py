@@ -1,5 +1,6 @@
 # === app/models.py ===
 from datetime import datetime
+from typing import Optional
 from uuid import uuid4
 
 from sqlmodel import JSON, Column, Field, SQLModel
@@ -26,3 +27,15 @@ class Game(SQLModel, table=True):
     eco: str
     pgn: str
     raw: dict = Field(sa_column=Column(JSON, nullable=False))
+
+
+class Job(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    username: str = Field(index=True)
+    action: str
+    status: str  # e.g. "queued", "running", "complete", "failed"
+    total: int = 0
+    processed: int = 0
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)

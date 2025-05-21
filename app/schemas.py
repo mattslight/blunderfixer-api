@@ -21,4 +21,12 @@ class SyncRequest(BaseModel):
 
 
 class SyncResponse(BaseModel):
+    job_id: str
+
+
+class SyncStatusResponse(BaseModel):
+    job_id: str
     status: str
+    total: int
+    processed: int
+    error: Optional[str]

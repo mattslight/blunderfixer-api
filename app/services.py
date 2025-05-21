@@ -1,13 +1,13 @@
 # === app/services.py ===
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 import httpx
 from sqlmodel import Session, select
 
 from app.db import engine
-from app.models import ArchiveMonth, Game
+from app.models import ArchiveMonth, Game, Job
 
 logger = logging.getLogger("blunderfixer.services")
 logging.basicConfig(level=logging.INFO)
@@ -82,3 +82,63 @@ def process_pending_archives():
         for arc in pending:
             logger.info(f"Processing archive {arc.month}")
             unpack_archive(arc.id)
+
+
+# 4) Run the sync job
+# (this is called in the background task)
+def run_sync_job(job_id: str):
+    with Session(engine) as session:
+        job = session.get(Job, job_id)
+        job.status = "running"
+        job.updated_at = datetime.now(timezone.utc)
+        session.add(job)
+        session.commit()
+
+        try:
+            months = fetch_archives(job.username)
+            job.total = len(months)
+            job.processed = 0
+            session.add(job)
+            session.commit()
+
+            current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+            for month_str, raw in months:
+                # upsert ArchiveMonth as before...
+                arc = session.exec(
+                    select(ArchiveMonth)
+                    .where(ArchiveMonth.username == job.username)
+                    .where(ArchiveMonth.month == month_str)
+                ).first()
+                if not arc:
+                    arc = ArchiveMonth(
+                        username=job.username,
+                        month=month_str,
+                    )
+                # always overwrite current month or new
+                if month_str == current_month or not arc.fetched_at:
+                    arc.raw_json = raw
+                    arc.fetched_at = datetime.now(timezone.utc)
+                    arc.processed = False
+
+                session.add(arc)
+                session.commit()
+
+                # update job progress
+                job.processed += 1
+                job.updated_at = datetime.now(timezone.utc)
+                session.add(job)
+                session.commit()
+
+            job.status = "complete"
+            job.updated_at = datetime.now(timezone.utc)
+            session.add(job)
+            session.commit()
+
+        except Exception as e:
+            # mark failure
+            job.status = "failed"
+            job.error = str(e)
+            job.updated_at = datetime.now(timezone.utc)
+            session.add(job)
+            session.commit()
+            raise  # so FastAPI logs the trace too

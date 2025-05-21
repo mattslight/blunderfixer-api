@@ -1,64 +1,49 @@
-# === app/routes/sync.py ===
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import ArchiveMonth
-from app.schemas import SyncRequest, SyncResponse
-from app.services import fetch_archives
+from app.models import ArchiveMonth, Job
+from app.schemas import SyncRequest, SyncResponse, SyncStatusResponse
+from app.services import fetch_archives, run_sync_job  # we’ll write run_sync_job next
 
 router = APIRouter()
 
 
 @router.post("/sync", response_model=SyncResponse)
-def sync_user(req: SyncRequest, session: Session = Depends(get_session)):
-    months = fetch_archives(req.username)
-    now = datetime.now(timezone.utc)
-    current_month = now.strftime("%Y-%m")
+def sync_user(
+    req: SyncRequest,
+    bg: BackgroundTasks,
+    session: Session = Depends(get_session),
+):
+    # 1) create the job record
+    job = Job(
+        username=req.username,
+        action="sync_archives",
+        status="queued",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    session.add(job)
+    session.commit()  # now job.id is populated
 
-    # pull down existing months
-    existing = {
-        arc.month: arc
-        for arc in session.exec(
-            select(ArchiveMonth).where(ArchiveMonth.username == req.username)
-        )
-    }
+    # 2) enqueue background work, passing job.id
+    bg.add_task(run_sync_job, job.id)
 
-    buffer = []
+    # 3) immediately return the job id
+    return SyncResponse(job_id=job.id)
 
-    def flush():
-        """commit and clear the buffer"""
-        session.commit()
-        buffer.clear()
 
-    for month_str, raw in months:
-        if month_str in existing:
-            # only overwrite the current month
-            if month_str != current_month:
-                continue
-            arc = existing[month_str]
-            arc.raw_json = raw
-            arc.fetched_at = now
-            arc.processed = False
-        else:
-            arc = ArchiveMonth(
-                username=req.username,
-                month=month_str,
-                raw_json=raw,
-                fetched_at=now,
-            )
-
-        session.add(arc)
-        buffer.append(arc)
-
-        # once we have 5 pending, commit them
-        if len(buffer) >= 5:
-            flush()
-
-    # commit any remainder
-    if buffer:
-        flush()
-
-    return SyncResponse(status="synced")
+@router.get("/sync/{job_id}", response_model=SyncStatusResponse)
+def sync_status(job_id: str, session: Session = Depends(get_session)):
+    job = session.get(Job, job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return SyncStatusResponse(
+        job_id=job.id,
+        status=job.status,
+        total=job.total,
+        processed=job.processed,
+        error=job.error,
+    )
