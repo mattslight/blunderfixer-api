@@ -2,7 +2,6 @@ chess==1.11.2
 fastapi==0.115.12
 httpx==0.28.1
 openai==0.27.2
-pydantic==1.10.7
 python-dotenv==1.1.0
 python_chess==0.27.3
 Requests==2.32.3
