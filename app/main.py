@@ -13,6 +13,7 @@ from app.routes import (
     player_recent_games,
     sync,
 )
+from app.routes.player_stats.index import router as player_stats_router
 
 app = FastAPI()
 
@@ -60,6 +61,7 @@ app.include_router(fen_feature_extraction.router)
 app.include_router(phase.router)
 app.include_router(player_recent_games.router)
 app.include_router(sync.router)
+app.include_router(player_stats_router)
 
 
 @app.get("/health")
