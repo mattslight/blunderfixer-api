@@ -1,5 +1,4 @@
-# app/routes/player_stats/schemas.py
-
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -32,15 +31,62 @@ class TimeControlStats(BaseModel):
 
 
 class TerminationStats(BaseModel):
-    termination: Optional[str]
+    result: Optional[str]
     games: int
     win_rate: float
     loss_rate: float
     draw_rate: float
 
 
+class EcoStats(BaseModel):
+    eco: str
+    games: int
+    win_rate: float
+    loss_rate: float
+    draw_rate: float
+
+
+class EcoFamilyStats(BaseModel):
+    family: str
+    games: int
+    win_rate: float
+
+
+class OpponentStats(BaseModel):
+    # used for avg opponent rating by result or most-faced opponents
+    result: Optional[str] = None
+    avg_rating: Optional[float] = None
+    username: Optional[str] = None
+    games: Optional[int] = None
+    wins: Optional[int] = None
+    losses: Optional[int] = None
+    draws: Optional[int] = None
+
+
+class RatingBucketStats(BaseModel):
+    bucket: str
+    games: int
+    win_rate: float
+
+
+class EloProgressionEntry(BaseModel):
+    played_at: datetime
+    rating: int
+
+
+class EloSeries(BaseModel):
+    time_class: str  # bullet / blitz / rapid / daily
+    entries: list[EloProgressionEntry]
+
+
 class PlayerStatsResponse(BaseModel):
     overall: OverallStats
-    by_time_class: List[TimeClassStats]
-    by_time_control: List[TimeControlStats]
-    by_termination: List[TerminationStats]
+    by_time_class: List[TimeClassStats] = []
+    by_time_control: List[TimeControlStats] = []
+    by_termination: List[TerminationStats] = []
+    by_eco: List[EcoStats] = []
+    by_eco_family: List[EcoFamilyStats] = []
+    avg_opp_rating: List[OpponentStats] = []
+    rating_buckets: List[RatingBucketStats] = []
+    most_faced: List[OpponentStats] = []
+    elo_progression: List[EloSeries] = []
