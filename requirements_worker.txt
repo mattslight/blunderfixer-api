@@ -1,7 +1,7 @@
 alembic==1.16.1
 chess==1.11.2
 httpx==0.28.1
-python-dotenv==1.1.0
+python-dotenv[cli]==1.1.0
 python_chess==0.27.3
 Requests==2.32.3
 sqlmodel==0.0.24
