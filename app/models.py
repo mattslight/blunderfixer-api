@@ -94,6 +94,12 @@ class Game(SQLModel, table=True):
     raw: dict = Field(
         sa_column=Column(JSON, nullable=False, comment="Raw JSON object from Chess.com")
     )
+    drills_processed: bool = Field(
+        default=False, comment="Have we scanned this PGN for drills?"
+    )
+    drilled_at: Optional[datetime] = Field(
+        default=None, comment="When we last ran the drill scan"
+    )
 
 
 class Job(SQLModel, table=True):
@@ -127,3 +133,13 @@ class Job(SQLModel, table=True):
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime(timezone=True), comment="Last update timestamp"),
     )
+
+
+class DrillPosition(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    game_id: str = Field(foreign_key="game.id", nullable=False)
+    username: str = Field(nullable=False)  # for quick filtering
+    fen: str = Field(sa_column=Column(String), nullable=False)
+    ply: int = Field(nullable=False)  # half-move index
+    eval_swing: float = Field(nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
