@@ -16,17 +16,18 @@ from app.db import engine
 from app.models import DrillPosition, Game
 
 # Path to your Stockfish binary
-STOCKFISH = os.getenv("STOCKFISH_PATH", "/opt/homebrew/bin/stockfish")
+STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
 
 
 def get_cp(info):
     """
     Convert Stockfish score to centipawns, handling mate scores.
     """
-    s = info["score"].white()
-    if s.is_mate():
-        return float(1e4 if s.mate() > 0 else -1e4)
-    return float(s.score())
+    # engine.analyse returns a dict; extract the Score object via key lookup
+    score_obj = info["score"].white()
+    if score_obj.is_mate():
+        return float(1e4 if score_obj.mate() > 0 else -1e4)
+    return float(score_obj.score())
 
 
 def shallow_drills(pgn: str):
@@ -35,34 +36,32 @@ def shallow_drills(pgn: str):
     Returns a list of (fen_before, ply_index, eval_swing).
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
-    if not game:
+    if game is None:
         return []
 
     board = game.board()
-    eng = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
-    # Force single-threaded engine to match one process per core
+    engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
     try:
-        eng.configure({"Threads": 1})
+        engine_proc.configure({"Threads": 1})
     except Exception:
         pass
 
-    # Initial evaluation before first move
-    prev_info = eng.analyse(board, chess.engine.Limit(depth=12))
+    prev_info = engine_proc.analyse(board, chess.engine.Limit(depth=12))
     prev_cp = get_cp(prev_info)
     prev_fen, prev_ply = board.fen(), 0
 
     drills = []
     ply = 1
-    for mv in game.mainline_moves():
-        board.push(mv)
-        info = eng.analyse(board, chess.engine.Limit(depth=12))
+    for move in game.mainline_moves():
+        board.push(move)
+        info = engine_proc.analyse(board, chess.engine.Limit(depth=12))
         cp = get_cp(info)
         # Collapse rule: previous >= +3.0 and now <= +0.5
         if prev_cp >= 300 and cp <= 50:
             drills.append((prev_fen, prev_ply, prev_cp - cp))
         prev_cp, prev_fen, prev_ply, ply = cp, board.fen(), ply, ply + 1
 
-    eng.close()
+    engine_proc.close()
     return drills
 
 
@@ -72,6 +71,10 @@ def process_game(game_id: str):
     """
     with Session(engine) as session:
         game = session.get(Game, game_id)
+        # game_id comes from an existing query; ensure model matches table
+        if not game:
+            return game_id
+
         for fen, ply, swing in shallow_drills(game.pgn):
             board = chess.Board(fen)
             side = "w" if board.turn else "b"
@@ -98,17 +101,15 @@ def process_game(game_id: str):
 
 
 if __name__ == "__main__":
-    # Determine available CPU cores
     cpu_count = multiprocessing.cpu_count()
     print(f"🔧 Worker starting with {cpu_count} cores")
 
     while True:
         with Session(engine) as session:
-            # Fetch up to `cpu_count` unprocessed games
             stmt = (
                 select(Game.id).where(Game.drills_processed == False).limit(cpu_count)
             )
-            game_ids = [gid for (gid,) in session.exec(stmt).all()]
+            game_ids = session.exec(stmt).all()
 
         if not game_ids:
             print("No unprocessed games, sleeping for 5s…")
