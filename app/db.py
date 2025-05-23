@@ -3,7 +3,9 @@
 import logging
 from os import getenv
 
-from sqlmodel import Session, create_engine
+from sqlmodel import Session, SQLModel, create_engine
+
+import app.models  # registers your models with SQLModel.metadata
 
 # ─── Configure logging ──────────────────────────────────────────────────────
 # (you can also put this in main.py if you prefer one central place)
@@ -14,7 +16,12 @@ logger = logging.getLogger("app.db")
 DATABASE_URL = getenv("DATABASE_URL", "sqlite:///./blunderfixer.db")
 
 # ─── Create engine ─────────────────────────────────────────────────────────
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(
+    DATABASE_URL, echo=True, connect_args={"options": "-csearch_path=public"}
+)
+
+# Ensure all tables exist (idempotent)
+SQLModel.metadata.create_all(engine)
 
 # Immediately after creating the engine, log what SQLAlchemy thinks the URL is:
 # this will expand sqlite file paths or canonicalize postgres URLs
