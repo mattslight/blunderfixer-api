@@ -53,10 +53,18 @@ if __name__ == "__main__":
                 continue
 
             for fen, ply, swing in shallow_drills(game.pgn):
+                # derive hero from whose turn it was
+                from chess import Board
+
+                board = Board(fen)  # position before the collapse move
+                side_to_move = "w" if board.turn else "b"
+                hero_name = game.white_username if board.turn else game.black_username
+
                 session.add(
                     DrillPosition(
                         game_id=game.id,
-                        username=game.username,
+                        username=hero_name,
+                        hero_side=side_to_move,
                         fen=fen,
                         ply=ply,
                         eval_swing=swing,

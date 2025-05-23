@@ -20,4 +20,5 @@ dbshell:
 
 # run the background drill worker locally
 worker:
-	dotenv run -- python worker.py
+	@echo "📢 Starting drill worker…"
+	dotenv run -- bash -lc "python -m app.worker"
