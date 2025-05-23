@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import (
@@ -12,7 +12,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlmodel import JSON, Field, SQLModel
+from sqlmodel import JSON, Field, Relationship, SQLModel
 
 
 class ArchiveMonth(SQLModel, table=True):
@@ -58,8 +58,44 @@ class Game(SQLModel, table=True):
     )
     pgn: str = Field(sa_column=Column(String))
     raw: dict = Field(sa_column=Column(JSON, nullable=False))
-    drills_processed: bool = Field(default=False)
-    drilled_at: Optional[datetime] = Field(default=None)
+    drills: List["DrillQueue"] = Relationship(back_populates="game")
+
+
+class DrillQueue(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint("game_id", "hero_username", name="uq_drillqueue_game_hero"),
+        {"comment": "Queue of games to drill per user (hero)"},
+    )
+
+    id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
+    game_id: str = Field(
+        sa_column=Column(
+            String,
+            ForeignKey("game.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+    )
+    hero_username: str = Field(
+        sa_column=Column(
+            String,
+            nullable=False,
+            index=True,
+        ),
+    )
+    drills_processed: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False),
+    )
+    drilled_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True)),
+    )
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    game: Optional[Game] = Relationship(back_populates="drills")
 
 
 class Job(SQLModel, table=True):
@@ -86,7 +122,9 @@ class Job(SQLModel, table=True):
 
 
 class DrillPosition(SQLModel, table=True):
-    __table_args__ = ({"comment": "Practice Positions extracted from Games"},)
+    __table_args__ = (
+        {"comment": "Single Practice Position extracted from games in DrillQueue"},
+    )
 
     id: Optional[int] = Field(default=None, primary_key=True)
     game_id: str = Field(

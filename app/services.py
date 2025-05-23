@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.db import engine
-from app.models import ArchiveMonth, Game, Job
+from app.models import ArchiveMonth, DrillQueue, Game, Job
 
 logger = logging.getLogger("blunderfixer.services")
 logging.basicConfig(level=logging.INFO)
@@ -105,6 +105,23 @@ def unpack_archive(archive_id: str):
 
 
 def run_sync_job(job_id: str):
+    """
+    Synchronise and process Chess.com archives for a given Job.
+
+    This function will:
+      1. Mark the Job as running.
+      2. Fetch archives for the current and previous month.
+      3. Upsert ArchiveMonth records (creating or updating).
+      4. Unpack each archive into Game rows.
+      5. Update Job.processed after each month and mark completion.
+      6. On database errors, mark the Job as failed and record the error.
+
+    Args:
+        job_id (str): UUID of the Job to execute.
+
+    Raises:
+        SQLAlchemyError: If any database operation within the sync fails.
+    """
     from sqlalchemy.exc import SQLAlchemyError
 
     with Session(engine) as session:
@@ -161,6 +178,8 @@ def run_sync_job(job_id: str):
                 session.add(job)
                 session.commit()
 
+            enqueue_recent_drills(job.username, session)
+
             job.status = "complete"
             job.updated_at = datetime.now(timezone.utc)
             session.add(job)
@@ -174,3 +193,30 @@ def run_sync_job(job_id: str):
             session.add(job)
             session.commit()
             raise
+
+
+def enqueue_recent_drills(username: str, session: Session) -> None:
+    """
+    Pull the 20 most recent games for `username` and insert them
+    into DrillQueue (skipping any (game_uuid, hero_username) duplicates).
+    """
+    recent = session.exec(
+        select(Game)
+        .where((Game.white_username == username) | (Game.black_username == username))
+        .order_by(Game.played_at.desc())
+        .limit(20)
+    ).all()
+
+    for game in recent:
+        dq = DrillQueue(
+            game_id=game.id,
+            hero_username=username,
+            drills_processed=False,
+            drilled_at=None,
+        )
+        session.add(dq)
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            logger.info(f"⏭️ Duplicate drill skipped for {game.game_uuid}")

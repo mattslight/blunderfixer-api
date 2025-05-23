@@ -13,78 +13,91 @@ import chess.pgn
 from sqlmodel import Session, select
 
 from app.db import engine
-from app.models import DrillPosition, Game
+from app.models import DrillPosition, DrillQueue, Game
 
-# Path to your Stockfish binary
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
+SWING_THRESHOLD = 200  # flag any single‐move swing ≥ 2.00 pawns
 
 
 def get_cp(info):
-    """
-    Convert Stockfish score to centipawns, handling mate scores.
-    """
-    # engine.analyse returns a dict; extract the Score object via key lookup
     score_obj = info["score"].white()
     if score_obj.is_mate():
         return float(1e4 if score_obj.mate() > 0 else -1e4)
     return float(score_obj.score())
 
 
-def shallow_drills(pgn: str):
+SWING_THRESHOLD = 200  # ≥2-pawn loss counts as a drill
+
+
+def shallow_drills_for_hero(pgn: str, hero_side: str):
     """
-    Perform a depth-12 pass over the PGN, returning collapse candidates.
-    Returns a list of (fen_before, ply_index, eval_swing).
+    Scan the game and return positions where the *hero* (not the opponent)
+    loses ≥ SWING_THRESHOLD centipawns in a single move.
+
+    Returns: List[(fen_before_move, ply_index, delta_cp)]
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
-    if game is None:
+    if not game:
         return []
 
-    board = game.board()
-    engine_proc = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
+    engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
     try:
-        engine_proc.configure({"Threads": 1})
+        engine.configure({"Threads": 1})
     except Exception:
         pass
 
-    prev_info = engine_proc.analyse(board, chess.engine.Limit(depth=12))
-    prev_cp = get_cp(prev_info)
-    prev_fen, prev_ply = board.fen(), 0
+    drills: list[tuple[str, int, float]] = []
+    ply_idx = 0  # half-move counter from the start position
 
-    drills = []
-    ply = 1
-    for move in game.mainline_moves():
-        board.push(move)
-        info = engine_proc.analyse(board, chess.engine.Limit(depth=12))
-        cp = get_cp(info)
-        # Collapse rule: previous >= +3.0 and now <= +0.5
-        if prev_cp >= 300 and cp <= 50:
-            drills.append((prev_fen, prev_ply, prev_cp - cp))
-        prev_cp, prev_fen, prev_ply, ply = cp, board.fen(), ply, ply + 1
+    node = game
+    while not node.is_end():
+        move = node.variation(0).move  # next move in main line
+        mover_side = "w" if node.board().turn else "b"
 
-    engine_proc.close()
+        # analyse only the hero's own moves
+        if mover_side == hero_side:
+            fen_before = node.board().fen()
+            cp_before = get_cp(
+                engine.analyse(node.board(), chess.engine.Limit(depth=12))
+            )
+
+            # position *after* hero’s move
+            node = node.variation(0)
+            cp_after = get_cp(
+                engine.analyse(node.board(), chess.engine.Limit(depth=12))
+            )
+
+            delta = cp_before - cp_after
+            if delta >= SWING_THRESHOLD:
+                drills.append((fen_before, ply_idx, delta))
+        else:
+            node = node.variation(0)  # just advance (opponent move)
+
+        ply_idx += 1
+
+    engine.close()
     return drills
 
 
-def process_game(game_id: str):
-    """
-    Process one game: detect drills, store them, mark game processed.
-    """
+def process_queue_entry(queue_id: str):
     with Session(engine) as session:
-        game = session.get(Game, game_id)
-        # game_id comes from an existing query; ensure model matches table
+        dq = session.get(DrillQueue, queue_id)
+        if not dq:
+            return queue_id
+
+        game = session.get(Game, dq.game_id)
         if not game:
-            return game_id
+            return queue_id
 
-        for fen, ply, swing in shallow_drills(game.pgn):
-            board = chess.Board(fen)
-            side = "w" if board.turn else "b"
-            hero = game.white_username if board.turn else game.black_username
+        hero_side = (
+            "w" if dq.hero_username.lower() == game.white_username.lower() else "b"
+        )
 
+        for fen, ply, swing in shallow_drills_for_hero(game.pgn, hero_side):
             session.add(
                 DrillPosition(
                     game_id=game.id,
-                    username=hero,
-                    hero_side=side,
+                    username=dq.hero_username,
                     fen=fen,
                     ply=ply,
                     eval_swing=swing,
@@ -92,12 +105,12 @@ def process_game(game_id: str):
                 )
             )
 
-        game.drills_processed = True
-        game.drilled_at = datetime.utcnow()
-        session.add(game)
+        dq.drills_processed = True
+        dq.drilled_at = datetime.utcnow()
+        session.add(dq)
         session.commit()
 
-    return game_id
+    return queue_id
 
 
 if __name__ == "__main__":
@@ -107,16 +120,18 @@ if __name__ == "__main__":
     while True:
         with Session(engine) as session:
             stmt = (
-                select(Game.id).where(Game.drills_processed == False).limit(cpu_count)
+                select(DrillQueue.id)
+                .where(DrillQueue.drills_processed == False)
+                .limit(cpu_count)
             )
-            game_ids = session.exec(stmt).all()
+            queue_ids = session.exec(stmt).all()
 
-        if not game_ids:
-            print("No unprocessed games, sleeping for 5s…")
+        if not queue_ids:
+            print("No unprocessed drills, sleeping for 5s…")
             time.sleep(5)
             continue
 
-        print(f"⚙️  Dispatching {len(game_ids)} games over {cpu_count} workers…")
+        print(f"⚙️  Dispatching {len(queue_ids)} drills over {cpu_count} workers…")
         with ProcessPoolExecutor(max_workers=cpu_count) as pool:
-            for finished in pool.map(process_game, game_ids):
-                print(f"✓ Game {finished} done")
+            for done_id in pool.map(process_queue_entry, queue_ids):
+                print(f"✓ DrillQueue entry {done_id} done")
