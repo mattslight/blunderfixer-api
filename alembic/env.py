@@ -1,6 +1,9 @@
 import os
 from logging.config import fileConfig
 
+from dotenv import load_dotenv
+
+load_dotenv()  # loads DATABASE_URL from .env into os.environ
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
@@ -16,11 +19,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# override the URL with the DATABASE_URL env var if set
+# now override the sqlalchemy.url that was read from alembic.ini
 db_url = os.getenv("DATABASE_URL")
-if not db_url:
-    db_url = "sqlite:///./blunderfixer.db"
-config.set_main_option("sqlalchemy.url", db_url)
+if db_url:
+    context.config.set_main_option("sqlalchemy.url", db_url)
 
 # add your model's MetaData object here
 # for 'autogenerate' support
