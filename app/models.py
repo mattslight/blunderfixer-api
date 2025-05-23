@@ -86,6 +86,8 @@ class Job(SQLModel, table=True):
 
 
 class DrillPosition(SQLModel, table=True):
+    __table_args__ = ({"comment": "Practice Positions extracted from Games"},)
+
     id: Optional[int] = Field(default=None, primary_key=True)
     game_id: str = Field(
         sa_column=Column(String, ForeignKey("game.id"), nullable=False)
