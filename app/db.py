@@ -17,7 +17,10 @@ DATABASE_URL = getenv("DATABASE_URL", "sqlite:///./blunderfixer.db")
 
 # ─── Create engine ─────────────────────────────────────────────────────────
 engine = create_engine(
-    DATABASE_URL, echo=True, connect_args={"options": "-csearch_path=public"}
+    DATABASE_URL,
+    echo=True,
+    connect_args={"options": "-csearch_path=public"},
+    pool_pre_ping=True,
 )
 
 # Ensure all tables exist (idempotent)

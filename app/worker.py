@@ -80,6 +80,9 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
 
 
 def process_queue_entry(queue_id: str):
+
+    engine.dispose()
+
     with Session(engine) as session:
         dq = session.get(DrillQueue, queue_id)
         if not dq:
