@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List, Optional
 
 from pydantic import BaseModel
@@ -30,3 +31,16 @@ class SyncStatusResponse(BaseModel):
     total: int
     processed: int
     error: Optional[str]
+
+
+class DrillPositionResponse(BaseModel):
+    id: int
+    game_id: str
+    username: str
+    fen: str
+    ply: int
+    eval_swing: float
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
