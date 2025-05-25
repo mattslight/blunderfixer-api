@@ -58,7 +58,8 @@ class Game(SQLModel, table=True):
     )
     pgn: str = Field(sa_column=Column(String))
     raw: dict = Field(sa_column=Column(JSON, nullable=False))
-    drills: List["DrillQueue"] = Relationship(back_populates="game")
+    drill_queue: List["DrillQueue"] = Relationship(back_populates="game")
+    drill_positions: List["DrillPosition"] = Relationship(back_populates="game")
 
 
 class DrillQueue(SQLModel, table=True):
@@ -95,7 +96,30 @@ class DrillQueue(SQLModel, table=True):
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
-    game: Optional[Game] = Relationship(back_populates="drills")
+    game: Optional[Game] = Relationship(back_populates="drill_queue")
+
+
+class DrillPosition(SQLModel, table=True):
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id", "username", "ply", name="uq_drillposition_game_user_ply"
+        ),
+        {"comment": "Single Practice Position extracted from games in DrillQueue"},
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    game_id: str = Field(
+        sa_column=Column(String, ForeignKey("game.id"), nullable=False)
+    )
+    username: str = Field(sa_column=Column(String, nullable=False))
+    fen: str = Field(sa_column=Column(String, nullable=False))
+    ply: int = Field(sa_column=Column(Integer, nullable=False))
+    eval_swing: float = Field(sa_column=Column(Float, nullable=False))
+    created_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+    game: "Game" = Relationship(back_populates="drill_positions")
 
 
 class Job(SQLModel, table=True):
@@ -118,23 +142,4 @@ class Job(SQLModel, table=True):
     updated_at: datetime = Field(
         default_factory=datetime.utcnow,
         sa_column=Column(DateTime(timezone=True)),
-    )
-
-
-class DrillPosition(SQLModel, table=True):
-    __table_args__ = (
-        {"comment": "Single Practice Position extracted from games in DrillQueue"},
-    )
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    game_id: str = Field(
-        sa_column=Column(String, ForeignKey("game.id"), nullable=False)
-    )
-    username: str = Field(sa_column=Column(String, nullable=False))
-    fen: str = Field(sa_column=Column(String, nullable=False))
-    ply: int = Field(sa_column=Column(Integer, nullable=False))
-    eval_swing: float = Field(sa_column=Column(Float, nullable=False))
-    created_at: datetime = Field(
-        default_factory=datetime.utcnow,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
     )

@@ -10,13 +10,14 @@ from datetime import datetime
 import chess
 import chess.engine
 import chess.pgn
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
-from app.db import engine
+from app.db import engine as db_engine
 from app.models import DrillPosition, DrillQueue, Game
 
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
-SWING_THRESHOLD = 200  # flag any single‐move swing ≥ 2.00 pawns
+SWING_THRESHOLD = 150  # flag any single‐move swing ≥ 1.50 pawns
 
 
 def get_cp(info):
@@ -24,9 +25,6 @@ def get_cp(info):
     if score_obj.is_mate():
         return float(1e4 if score_obj.mate() > 0 else -1e4)
     return float(score_obj.score())
-
-
-SWING_THRESHOLD = 200  # ≥2-pawn loss counts as a drill
 
 
 def shallow_drills_for_hero(pgn: str, hero_side: str):
@@ -40,9 +38,9 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
     if not game:
         return []
 
-    engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
+    sf = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
     try:
-        engine.configure({"Threads": 1})
+        sf.configure({"Threads": 1})
     except Exception:
         pass
 
@@ -51,23 +49,24 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
 
     node = game
     while not node.is_end():
-        move = node.variation(0).move  # next move in main line
         mover_side = "w" if node.board().turn else "b"
 
         # analyse only the hero's own moves
         if mover_side == hero_side:
             fen_before = node.board().fen()
-            cp_before = get_cp(
-                engine.analyse(node.board(), chess.engine.Limit(depth=12))
-            )
+            cp_before = get_cp(sf.analyse(node.board(), chess.engine.Limit(depth=12)))
 
             # position *after* hero’s move
             node = node.variation(0)
-            cp_after = get_cp(
-                engine.analyse(node.board(), chess.engine.Limit(depth=12))
-            )
+            cp_after = get_cp(sf.analyse(node.board(), chess.engine.Limit(depth=12)))
 
-            delta = cp_before - cp_after
+            # compute delta from the hero�s POV:
+            #  - if hero is White, delta = white_cp_before - white_cp_after
+            #  - if hero is Black, delta = black_cp_before - black_cp_after
+            #    but black_cp = -white_cp, so we invert the sign:
+            sign = 1 if hero_side == "w" else -1
+            delta = sign * (cp_before - cp_after)
+
             if delta >= SWING_THRESHOLD:
                 drills.append((fen_before, ply_idx, delta))
         else:
@@ -75,15 +74,12 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
 
         ply_idx += 1
 
-    engine.close()
+    sf.close()
     return drills
 
 
 def process_queue_entry(queue_id: str):
-
-    engine.dispose()
-
-    with Session(engine) as session:
+    with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
         if not dq:
             return queue_id
@@ -96,18 +92,23 @@ def process_queue_entry(queue_id: str):
             "w" if dq.hero_username.lower() == game.white_username.lower() else "b"
         )
 
+        # --- Phase 1: insert drills one at a time ---
         for fen, ply, swing in shallow_drills_for_hero(game.pgn, hero_side):
-            session.add(
-                DrillPosition(
-                    game_id=game.id,
-                    username=dq.hero_username,
-                    fen=fen,
-                    ply=ply,
-                    eval_swing=swing,
-                    created_at=datetime.utcnow(),
-                )
+            dp = DrillPosition(
+                game_id=game.id,
+                username=dq.hero_username,
+                fen=fen,
+                ply=ply,
+                eval_swing=swing,
+                created_at=datetime.utcnow(),
             )
+            session.add(dp)
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()  # skip duplicates
 
+        # --- Phase 2: mark the queue complete ---
         dq.drills_processed = True
         dq.drilled_at = datetime.utcnow()
         session.add(dq)
@@ -121,7 +122,7 @@ if __name__ == "__main__":
     print(f"🔧 Worker starting with {cpu_count} cores")
 
     while True:
-        with Session(engine) as session:
+        with Session(db_engine) as session:
             stmt = (
                 select(DrillQueue.id)
                 .where(DrillQueue.drills_processed == False)

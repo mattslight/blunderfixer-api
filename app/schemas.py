@@ -41,6 +41,14 @@ class DrillPositionResponse(BaseModel):
     ply: int
     eval_swing: float
     created_at: datetime
+    hero_result: str
+    result_reason: str
+    time_control: str
+    time_class: str
+    hero_rating: int
+    opponent_username: str
+    opponent_rating: int
+    played_at: datetime
 
     class Config:
         orm_mode = True
