@@ -36,10 +36,23 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
     Returns: List[(fen_before_move, ply_index, delta_cp)]
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
-    if not game:
+    print(
+        f"[DBG] shallow_drills entry; hero={hero_side}; pgn-length={len(pgn)}",
+        flush=True,
+    )
+    try:
+        game = chess.pgn.read_game(io.StringIO(pgn))
+    except Exception as e:
+        print(f"[ERR] pgn.parse failed: {e}", flush=True)
         return []
 
+    if not game:
+        print("[DBG] no game parsed, returning empty", flush=True)
+        return []
+
+    print("[DBG] launching Stockfish…", flush=True)
     sf = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
+    print("[DBG] Stockfish launched", flush=True)
     eng_pid = sf.process.pid
     eng = psutil.Process(eng_pid)
     print(
@@ -98,6 +111,7 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
 
 def process_queue_entry(queue_id: str):
     log_memory("start task")
+    print(f"[DBG] processing queue {queue_id}", flush=True)
     with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
         if not dq:
