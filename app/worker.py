@@ -39,10 +39,12 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
         return []
 
     sf = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
+    log_memory("after engine start")
     try:
         sf.configure({"Threads": 1, "Hash": 4})
     except Exception:
         pass
+    log_memory("after engine configure")
 
     drills: list[tuple[str, int, float]] = []
     ply_idx = 0  # half-move counter from the start position
@@ -79,6 +81,7 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
 
 
 def process_queue_entry(queue_id: str):
+    log_memory("start task")
     with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
         if not dq:
@@ -117,9 +120,10 @@ def process_queue_entry(queue_id: str):
     return queue_id
 
 
-def log_memory():
-    rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    print(f"[MEM] PID={os.getpid()} RSS={rss_kb} KB")
+def log_memory(label: str = ""):
+    # ru_maxrss on Linux is KB
+    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print(f"[MEM] {label} PID={os.getpid()} RSS={rss} KB")
 
 
 if __name__ == "__main__":
