@@ -40,7 +40,7 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
 
     sf = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
     try:
-        sf.configure({"Threads": 1})
+        sf.configure({"Threads": 1, "Hash": 4})
     except Exception:
         pass
 
@@ -60,7 +60,7 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
             node = node.variation(0)
             cp_after = get_cp(sf.analyse(node.board(), chess.engine.Limit(depth=12)))
 
-            # compute delta from the hero�s POV:
+            # compute delta from the hero's POV:
             #  - if hero is White, delta = white_cp_before - white_cp_after
             #  - if hero is Black, delta = black_cp_before - black_cp_after
             #    but black_cp = -white_cp, so we invert the sign:
