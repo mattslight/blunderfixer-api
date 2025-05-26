@@ -1,16 +1,14 @@
 # app/worker.py
 
 import io
+import multiprocessing
 import os
-import resource
 import time
-from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
 
 import chess
-import chess.engine
 import chess.pgn
-import psutil
+from chess.engine import Limit, SimpleEngine
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -18,7 +16,7 @@ from app.db import engine as db_engine
 from app.models import DrillPosition, DrillQueue, Game
 
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
-SWING_THRESHOLD = 150  # flag any single‐move swing ≥ 1.50 pawns
+SWING_THRESHOLD = 150  # flag any single‑move swing ≥ 1.50 pawns
 
 
 def get_cp(info):
@@ -28,7 +26,7 @@ def get_cp(info):
     return float(score_obj.score())
 
 
-def shallow_drills_for_hero(pgn: str, hero_side: str):
+def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
     """
     Scan the game and return positions where the *hero* (not the opponent)
     loses ≥ SWING_THRESHOLD centipawns in a single move.
@@ -36,82 +34,36 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
     Returns: List[(fen_before_move, ply_index, delta_cp)]
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
-    print(
-        f"[DBG] shallow_drills entry; hero={hero_side}; pgn-length={len(pgn)}",
-        flush=True,
-    )
-    try:
-        game = chess.pgn.read_game(io.StringIO(pgn))
-    except Exception as e:
-        print(f"[ERR] pgn.parse failed: {e}", flush=True)
-        return []
-
     if not game:
-        print("[DBG] no game parsed, returning empty", flush=True)
         return []
-
-    print("[DBG] launching Stockfish…", flush=True)
-    sf = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
-    print("[DBG] Stockfish launched", flush=True)
-    eng_pid = sf.process.pid
-    eng = psutil.Process(eng_pid)
-    print(
-        f"[MEM] started engine PID={eng_pid} RSS={eng.memory_info().rss//1024} KB",
-        flush=True,
-    )
-
-    try:
-        sf.configure({"Threads": 1, "Hash": 4})
-    except Exception:
-        pass
-    print(f"[MEM] after configure RSS={eng.memory_info().rss//1024} KB", flush=True)
 
     drills: list[tuple[str, int, float]] = []
-    ply_idx = 0  # half-move counter from the start position
-
+    ply_idx = 0
     node = game
+
     while not node.is_end():
         mover_side = "w" if node.board().turn else "b"
-
-        # analyse only the hero's own moves
         if mover_side == hero_side:
             fen_before = node.board().fen()
-            cp_before = get_cp(sf.analyse(node.board(), chess.engine.Limit(depth=12)))
-            print(
-                f"[MEM] after analyse (take one) RSS={eng.memory_info().rss//1024} KB",
-                flush=True,
-            )
+            cp_before = get_cp(sf.analyse(node.board(), Limit(depth=12)))
 
-            # position *after* hero’s move
             node = node.variation(0)
-            cp_after = get_cp(sf.analyse(node.board(), chess.engine.Limit(depth=12)))
-            print(
-                f"[MEM] after analyse (take two) RSS={eng.memory_info().rss//1024} KB",
-                flush=True,
-            )
+            cp_after = get_cp(sf.analyse(node.board(), Limit(depth=12)))
 
-            # compute delta from the hero's POV:
-            #  - if hero is White, delta = white_cp_before - white_cp_after
-            #  - if hero is Black, delta = black_cp_before - black_cp_after
-            #    but black_cp = -white_cp, so we invert the sign:
             sign = 1 if hero_side == "w" else -1
             delta = sign * (cp_before - cp_after)
 
             if delta >= SWING_THRESHOLD:
                 drills.append((fen_before, ply_idx, delta))
         else:
-            node = node.variation(0)  # just advance (opponent move)
+            node = node.variation(0)
 
         ply_idx += 1
 
-    sf.close()
-    print(f"[ENG] after close RSS={eng.memory_info().rss//1024} KB", flush=True)
     return drills
 
 
-def process_queue_entry(queue_id: str):
-    log_memory("start task")
-    print(f"[DBG] processing queue {queue_id}", flush=True)
+def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
     with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
         if not dq:
@@ -125,8 +77,7 @@ def process_queue_entry(queue_id: str):
             "w" if dq.hero_username.lower() == game.white_username.lower() else "b"
         )
 
-        # --- Phase 1: insert drills one at a time ---
-        for fen, ply, swing in shallow_drills_for_hero(game.pgn, hero_side):
+        for fen, ply, swing in shallow_drills_for_hero(sf, game.pgn, hero_side):
             dp = DrillPosition(
                 game_id=game.id,
                 username=dq.hero_username,
@@ -139,9 +90,8 @@ def process_queue_entry(queue_id: str):
             try:
                 session.commit()
             except IntegrityError:
-                session.rollback()  # skip duplicates
+                session.rollback()
 
-        # --- Phase 2: mark the queue complete ---
         dq.drills_processed = True
         dq.drilled_at = datetime.now(timezone.utc)
         session.add(dq)
@@ -150,41 +100,39 @@ def process_queue_entry(queue_id: str):
     return queue_id
 
 
-def log_memory(label: str = ""):
-    # ru_maxrss on Linux is KB
-    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    child_rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-    print(
-        f"[MEM] {label} PID={os.getpid()} SELF={rss} KB | CHILDREN_MAX={child_rss} KB",
-        flush=True,
-    )
+def fetch_next_batch(limit: int) -> list[str]:
+    with Session(db_engine) as session:
+        stmt = (
+            select(DrillQueue.id)
+            .where(DrillQueue.drills_processed == False)
+            .limit(limit)
+        )
+        return session.exec(stmt).all()
 
 
 if __name__ == "__main__":
+    cpu_count = multiprocessing.cpu_count()
 
-    COUNT = 2
+    # spawn a single engine using all cores
+    sf = SimpleEngine.popen_uci(STOCKFISH)
+    sf.configure(
+        {
+            "Threads": cpu_count,
+            "Hash": 16,  # shrink hash table to 16 MB
+        }
+    )
 
-    print(f"🔧 Worker starting with {COUNT} sessions", flush=True)
-    log_memory()
+    try:
+        while True:
+            queue_ids = fetch_next_batch(cpu_count)
+            if not queue_ids:
+                print("No unprocessed drills, sleeping for 5s…")
+                time.sleep(5)
+                continue
 
-    while True:
-        log_memory()
-        with Session(db_engine) as session:
-            stmt = (
-                select(DrillQueue.id)
-                .where(DrillQueue.drills_processed == False)
-                .limit(COUNT)
-            )
-            queue_ids = session.exec(stmt).all()
-
-        if not queue_ids:
-            print("No unprocessed drills, sleeping for 5s…")
-            time.sleep(5)
-            continue
-
-        print(f"⚙️  Dispatching {len(queue_ids)} drills over {COUNT} workers…")
-        log_memory()
-        with ProcessPoolExecutor(max_workers=COUNT) as pool:
-            for done_id in pool.map(process_queue_entry, queue_ids):
-                print(f"✓ DrillQueue entry {done_id} done")
-                log_memory()
+            print(f"Processing {len(queue_ids)} drills…")
+            for qid in queue_ids:
+                done = process_queue_entry(sf, qid)
+                print(f"✓ DrillQueue entry {done} done")
+    finally:
+        sf.close()
