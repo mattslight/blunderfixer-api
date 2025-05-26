@@ -118,15 +118,17 @@ def process_queue_entry(queue_id: str):
 
 
 if __name__ == "__main__":
-    cpu_count = multiprocessing.cpu_count()
-    print(f"🔧 Worker starting with {cpu_count} cores")
+
+    COUNT = 4
+
+    print(f"🔧 Worker starting with {COUNT} sessions")
 
     while True:
         with Session(db_engine) as session:
             stmt = (
                 select(DrillQueue.id)
                 .where(DrillQueue.drills_processed == False)
-                .limit(cpu_count)
+                .limit(COUNT)
             )
             queue_ids = session.exec(stmt).all()
 
@@ -135,7 +137,7 @@ if __name__ == "__main__":
             time.sleep(5)
             continue
 
-        print(f"⚙️  Dispatching {len(queue_ids)} drills over {cpu_count} workers…")
-        with ProcessPoolExecutor(max_workers=cpu_count) as pool:
+        print(f"⚙️  Dispatching {len(queue_ids)} drills over {COUNT} workers…")
+        with ProcessPoolExecutor(max_workers=COUNT) as pool:
             for done_id in pool.map(process_queue_entry, queue_ids):
                 print(f"✓ DrillQueue entry {done_id} done")
