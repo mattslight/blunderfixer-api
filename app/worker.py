@@ -1,8 +1,8 @@
 # app/worker.py
 
 import io
-import multiprocessing
 import os
+import resource
 import time
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
@@ -117,13 +117,20 @@ def process_queue_entry(queue_id: str):
     return queue_id
 
 
+def log_memory():
+    rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print(f"[MEM] PID={os.getpid()} RSS={rss_kb} KB")
+
+
 if __name__ == "__main__":
 
     COUNT = 4
 
     print(f"🔧 Worker starting with {COUNT} sessions")
+    log_memory()
 
     while True:
+        log_memory()
         with Session(db_engine) as session:
             stmt = (
                 select(DrillQueue.id)
@@ -138,6 +145,8 @@ if __name__ == "__main__":
             continue
 
         print(f"⚙️  Dispatching {len(queue_ids)} drills over {COUNT} workers…")
+        log_memory()
         with ProcessPoolExecutor(max_workers=COUNT) as pool:
             for done_id in pool.map(process_queue_entry, queue_ids):
                 print(f"✓ DrillQueue entry {done_id} done")
+                log_memory()
