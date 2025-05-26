@@ -143,3 +143,16 @@ class Job(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True)),
     )
+
+
+class ActiveUser(SQLModel, table=True):
+    __tablename__ = "active_users"
+    __table_args__ = ({"comment": "Active users, cron will sync these"},)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    username: str = Field(
+        sa_column=Column(String, nullable=False, unique=True, index=True)
+    )
+    last_synced: Optional[datetime] = Field(
+        default=None, sa_column=Column(DateTime(timezone=True))
+    )

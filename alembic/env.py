@@ -1,14 +1,18 @@
 import os
+import sys
 from logging.config import fileConfig
 
 from dotenv import load_dotenv
 
 load_dotenv()  # loads DATABASE_URL from .env into os.environ
+
+sys.path.append(os.getcwd())
+
 from sqlalchemy import engine_from_config, pool
 from sqlmodel import SQLModel
 
+import app.models
 from alembic import context
-from app.models import ArchiveMonth, Game, Job  # ensures your models are loaded
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
