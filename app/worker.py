@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import chess
 import chess.engine
 import chess.pgn
+import psutil
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -39,12 +40,18 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
         return []
 
     sf = chess.engine.SimpleEngine.popen_uci(STOCKFISH)
-    log_memory("after engine start")
+    eng_pid = sf.process.pid
+    eng = psutil.Process(eng_pid)
+    print(
+        f"[MEM] started engine PID={eng_pid} RSS={eng.memory_info().rss//1024} KB",
+        flush=True,
+    )
+
     try:
         sf.configure({"Threads": 1, "Hash": 4})
     except Exception:
         pass
-    log_memory("after engine configure")
+    print(f"[MEM] after configure RSS={eng.memory_info().rss//1024} KB", flush=True)
 
     drills: list[tuple[str, int, float]] = []
     ply_idx = 0  # half-move counter from the start position
@@ -57,10 +64,18 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
         if mover_side == hero_side:
             fen_before = node.board().fen()
             cp_before = get_cp(sf.analyse(node.board(), chess.engine.Limit(depth=12)))
+            print(
+                f"[MEM] after analyse (take one) RSS={eng.memory_info().rss//1024} KB",
+                flush=True,
+            )
 
             # position *after* hero’s move
             node = node.variation(0)
             cp_after = get_cp(sf.analyse(node.board(), chess.engine.Limit(depth=12)))
+            print(
+                f"[MEM] after analyse (take two) RSS={eng.memory_info().rss//1024} KB",
+                flush=True,
+            )
 
             # compute delta from the hero's POV:
             #  - if hero is White, delta = white_cp_before - white_cp_after
@@ -123,14 +138,18 @@ def process_queue_entry(queue_id: str):
 def log_memory(label: str = ""):
     # ru_maxrss on Linux is KB
     rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    print(f"[MEM] {label} PID={os.getpid()} RSS={rss} KB")
+    child_rss = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    print(
+        f"[MEM] {label} PID={os.getpid()} SELF={rss} KB | CHILDREN_MAX={child_rss} KB",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
 
     COUNT = 4
 
-    print(f"🔧 Worker starting with {COUNT} sessions")
+    print(f"🔧 Worker starting with {COUNT} sessions", flush=True)
     log_memory()
 
     while True:
