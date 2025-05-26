@@ -1,5 +1,6 @@
 # app/worker.py
 
+import argparse
 import io
 import multiprocessing
 import os
@@ -16,7 +17,7 @@ from app.db import engine as db_engine
 from app.models import DrillPosition, DrillQueue, Game
 
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
-SWING_THRESHOLD = 150  # flag any single‑move swing ≥ 1.50 pawns
+SWING_THRESHOLD = 150  # flag any single-move swing ≥ 1.50 pawns
 
 
 def get_cp(info):
@@ -74,11 +75,12 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
         if not game:
             return queue_id
 
+        # Determine which side we're analyzing
         hero_side = (
             "w" if dq.hero_username.lower() == game.white_username.lower() else "b"
         )
 
-        # Batch DB inserts: collect all DrillPosition rows before a single commit
+        # Collect blunder rows
         rows = []
         for fen, ply, swing in shallow_drills_for_hero(sf, game.pgn, hero_side):
             rows.append(
@@ -92,12 +94,28 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                 )
             )
 
+        # Batch DB inserts: use ON CONFLICT DO NOTHING to skip duplicates
         if rows:
-            session.add_all(rows)
-            try:
-                session.commit()
-            except IntegrityError:
-                session.rollback()  # handle duplicates if needed
+            from sqlalchemy.dialects.postgresql import insert
+
+            stmt = insert(DrillPosition).values(
+                [
+                    {
+                        "game_id": row.game_id,
+                        "username": row.username,
+                        "fen": row.fen,
+                        "ply": row.ply,
+                        "eval_swing": row.eval_swing,
+                        "created_at": row.created_at,
+                    }
+                    for row in rows
+                ]
+            )
+            stmt = stmt.on_conflict_do_nothing(
+                index_elements=["game_id", "username", "ply"]
+            )
+            session.execute(stmt)
+            session.commit()
 
         # Mark the queue entry complete
         dq.drills_processed = True
@@ -119,23 +137,42 @@ def fetch_next_batch(limit: int) -> list[str]:
 
 
 if __name__ == "__main__":
-    cpu_count = multiprocessing.cpu_count()
+    parser = argparse.ArgumentParser(description="Drill worker runner")
+    parser.add_argument(
+        "--once", action="store_true", help="Run one batch and then exit"
+    )
+    args = parser.parse_args()
 
-    # Spawn a single Stockfish engine using all CPU threads
+    cpu_count = multiprocessing.cpu_count()
     sf = SimpleEngine.popen_uci(STOCKFISH)
-    sf.configure({"Threads": cpu_count})
+    sf.configure({"Threads": cpu_count, "Hash": 16})
 
     try:
-        while True:
+        if args.once:
+            # Run exactly one batch then exit
+            start = time.time()
             queue_ids = fetch_next_batch(cpu_count)
             if not queue_ids:
-                print("No unprocessed drills, sleeping for 5s…")
-                time.sleep(5)
-                continue
+                print("No unprocessed drills for --once run. Exiting.")
+            else:
+                print(f"Processing {len(queue_ids)} drills (once)…")
+                for qid in queue_ids:
+                    done = process_queue_entry(sf, qid)
+                    print(f"✓ DrillQueue entry {done} done")
+            elapsed = time.time() - start
+            print(f"Single batch completed in {elapsed:.2f}s")
+        else:
+            # Continuous loop
+            while True:
+                queue_ids = fetch_next_batch(cpu_count)
+                if not queue_ids:
+                    print("No unprocessed drills, sleeping for 5s…")
+                    time.sleep(5)
+                    continue
 
-            print(f"Processing {len(queue_ids)} drills…")
-            for qid in queue_ids:
-                done = process_queue_entry(sf, qid)
-                print(f"✓ DrillQueue entry {done} done")
+                print(f"Processing {len(queue_ids)} drills…")
+                for qid in queue_ids:
+                    done = process_queue_entry(sf, qid)
+                    print(f"✓ DrillQueue entry {done} done")
     finally:
         sf.close()
