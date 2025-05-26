@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import uuid4
 
@@ -23,7 +23,7 @@ class ArchiveMonth(SQLModel, table=True):
     month: str = Field(sa_column=Column(String))
     raw_json: dict = Field(sa_column=Column(JSON, nullable=False))
     fetched_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True)),
     )
     processed: bool = Field(
@@ -93,7 +93,7 @@ class DrillQueue(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True)),
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     game: Optional[Game] = Relationship(back_populates="drill_queue")
@@ -116,7 +116,7 @@ class DrillPosition(SQLModel, table=True):
     ply: int = Field(sa_column=Column(Integer, nullable=False))
     eval_swing: float = Field(sa_column=Column(Float, nullable=False))
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     game: "Game" = Relationship(back_populates="drill_positions")
@@ -136,10 +136,10 @@ class Job(SQLModel, table=True):
         sa_column=Column(String),
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True)),
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True)),
     )

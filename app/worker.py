@@ -5,7 +5,7 @@ import multiprocessing
 import os
 import time
 from concurrent.futures import ProcessPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 
 import chess
 import chess.engine
@@ -100,7 +100,7 @@ def process_queue_entry(queue_id: str):
                 fen=fen,
                 ply=ply,
                 eval_swing=swing,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             session.add(dp)
             try:
@@ -110,7 +110,7 @@ def process_queue_entry(queue_id: str):
 
         # --- Phase 2: mark the queue complete ---
         dq.drills_processed = True
-        dq.drilled_at = datetime.utcnow()
+        dq.drilled_at = datetime.now(timezone.utc)
         session.add(dq)
         session.commit()
 
