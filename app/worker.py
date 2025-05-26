@@ -92,6 +92,7 @@ def shallow_drills_for_hero(pgn: str, hero_side: str):
         ply_idx += 1
 
     sf.close()
+    print(f"[ENG] after close RSS={eng.memory_info().rss//1024} KB", flush=True)
     return drills
 
 
@@ -147,7 +148,7 @@ def log_memory(label: str = ""):
 
 if __name__ == "__main__":
 
-    COUNT = 4
+    COUNT = 2
 
     print(f"🔧 Worker starting with {COUNT} sessions", flush=True)
     log_memory()
