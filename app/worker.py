@@ -2,7 +2,6 @@
 
 import argparse
 import io
-import multiprocessing
 import os
 import time
 from datetime import datetime, timezone
@@ -10,6 +9,7 @@ from datetime import datetime, timezone
 import chess
 import chess.pgn
 from chess.engine import Limit, SimpleEngine
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
@@ -96,8 +96,6 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
 
         # Batch DB inserts: use ON CONFLICT DO NOTHING to skip duplicates
         if rows:
-            from sqlalchemy.dialects.postgresql import insert
-
             stmt = insert(DrillPosition).values(
                 [
                     {
@@ -139,7 +137,7 @@ def fetch_next_batch(limit: int) -> list[str]:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Drill worker runner")
     parser.add_argument(
-        "--once", action="store_true", help="Run one batch and then exit"
+        "--once", action="store_true", help="Run through all batches once, then exit"
     )
     args = parser.parse_args()
 
@@ -149,31 +147,33 @@ if __name__ == "__main__":
     sf.configure({"Threads": COUNT, "Hash": 4})
 
     try:
-        if args.once:
-            # Run exactly one batch then exit
-            start = time.time()
+        start = time.time()
+
+        # Determine loop behavior
+        while True:
             queue_ids = fetch_next_batch(COUNT)
             if not queue_ids:
-                print("No unprocessed drills for --once run. Exiting.")
-            else:
-                print(f"Processing {len(queue_ids)} drills (once)…")
-                for qid in queue_ids:
-                    done = process_queue_entry(sf, qid)
-                    print(f"✓ DrillQueue entry {done} done")
-            elapsed = time.time() - start
-            print(f"Single batch completed in {elapsed:.2f}s")
-        else:
-            # Continuous loop
-            while True:
-                queue_ids = fetch_next_batch(COUNT)
-                if not queue_ids:
+                if args.once:
+                    # no more work: exit
+                    break
+                else:
                     print("No unprocessed drills, sleeping for 5s…")
                     time.sleep(5)
                     continue
 
-                print(f"Processing {len(queue_ids)} drills…")
-                for qid in queue_ids:
-                    done = process_queue_entry(sf, qid)
-                    print(f"✓ DrillQueue entry {done} done")
+            print(f"Processing {len(queue_ids)} drills…")
+            for qid in queue_ids:
+                done = process_queue_entry(sf, qid)
+                print(f"✓ DrillQueue entry {done} done")
+
+            # if --once, loop until empty then exit
+            if args.once:
+                continue
+
+        elapsed = time.time() - start
+        if args.once:
+            print(f"All batches completed in {elapsed:.2f}s")
+        else:
+            print("Worker exiting")
     finally:
         sf.close()
