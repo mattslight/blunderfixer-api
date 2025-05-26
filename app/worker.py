@@ -143,15 +143,16 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    cpu_count = multiprocessing.cpu_count()
+    COUNT = 1
+
     sf = SimpleEngine.popen_uci(STOCKFISH)
-    sf.configure({"Threads": cpu_count, "Hash": 16})
+    sf.configure({"Threads": COUNT, "Hash": 4})
 
     try:
         if args.once:
             # Run exactly one batch then exit
             start = time.time()
-            queue_ids = fetch_next_batch(cpu_count)
+            queue_ids = fetch_next_batch(COUNT)
             if not queue_ids:
                 print("No unprocessed drills for --once run. Exiting.")
             else:
@@ -164,7 +165,7 @@ if __name__ == "__main__":
         else:
             # Continuous loop
             while True:
-                queue_ids = fetch_next_batch(cpu_count)
+                queue_ids = fetch_next_batch(COUNT)
                 if not queue_ids:
                     print("No unprocessed drills, sleeping for 5s…")
                     time.sleep(5)
