@@ -1,4 +1,6 @@
 # Exported from Render on 2025-04-30T21:25:42Z
+version: "1"
+
 services:
   - type: web
     name: blunderfixer-api
@@ -19,4 +21,13 @@ services:
     healthCheckPath: /health
     domains:
       - api.blunderfixer.com
-version: "1"
+
+jobs:
+  - type: cron
+    name: sync-all
+    repo: https://github.com/mattslight/blunderfixer-api
+    schedule: "*/15 * * * *" # every 5 min (UTC)
+    plan: free
+    command: |
+      curl -fsS -X POST \
+           https://api.blunderfixer.com/sync_all

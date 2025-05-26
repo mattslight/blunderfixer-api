@@ -21,6 +21,10 @@ class SyncRequest(BaseModel):
     username: str
 
 
+class SyncAllResponse(BaseModel):
+    results: dict[str, str]  # {username: job_id}
+
+
 class SyncResponse(BaseModel):
     job_id: str
 

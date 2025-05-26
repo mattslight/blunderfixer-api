@@ -13,6 +13,7 @@ from app.routes import (
     phase,
     player_recent_games,
     sync,
+    sync_all,
 )
 from app.routes.player_stats.index import router as player_stats_router
 
@@ -64,6 +65,7 @@ app.include_router(player_recent_games.router)
 app.include_router(sync.router)
 app.include_router(player_stats_router)
 app.include_router(drills.router)
+app.include_router(sync_all.router)
 
 
 @app.get("/health")
