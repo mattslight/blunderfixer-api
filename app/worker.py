@@ -64,6 +64,7 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
 
 
 def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
+    # Load the queue entry
     with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
         if not dq:
@@ -77,21 +78,28 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             "w" if dq.hero_username.lower() == game.white_username.lower() else "b"
         )
 
+        # Batch DB inserts: collect all DrillPosition rows before a single commit
+        rows = []
         for fen, ply, swing in shallow_drills_for_hero(sf, game.pgn, hero_side):
-            dp = DrillPosition(
-                game_id=game.id,
-                username=dq.hero_username,
-                fen=fen,
-                ply=ply,
-                eval_swing=swing,
-                created_at=datetime.now(timezone.utc),
+            rows.append(
+                DrillPosition(
+                    game_id=game.id,
+                    username=dq.hero_username,
+                    fen=fen,
+                    ply=ply,
+                    eval_swing=swing,
+                    created_at=datetime.now(timezone.utc),
+                )
             )
-            session.add(dp)
+
+        if rows:
+            session.add_all(rows)
             try:
                 session.commit()
             except IntegrityError:
-                session.rollback()
+                session.rollback()  # handle duplicates if needed
 
+        # Mark the queue entry complete
         dq.drills_processed = True
         dq.drilled_at = datetime.now(timezone.utc)
         session.add(dq)
@@ -113,14 +121,9 @@ def fetch_next_batch(limit: int) -> list[str]:
 if __name__ == "__main__":
     cpu_count = multiprocessing.cpu_count()
 
-    # spawn a single engine using all cores
+    # Spawn a single Stockfish engine using all CPU threads
     sf = SimpleEngine.popen_uci(STOCKFISH)
-    sf.configure(
-        {
-            "Threads": cpu_count,
-            "Hash": 16,  # shrink hash table to 16 MB
-        }
-    )
+    sf.configure({"Threads": cpu_count})
 
     try:
         while True:
