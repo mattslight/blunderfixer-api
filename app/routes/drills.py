@@ -21,11 +21,13 @@ def list_drills(
 ):
     stmt = (
         select(DrillPosition)
-        # join into Game so we can order by its played_at
         .join(DrillPosition.game)
         .options(selectinload(DrillPosition.game))
         .where(DrillPosition.username == username)
-        .order_by(Game.played_at.desc())
+        .order_by(
+            Game.played_at.desc(),
+            DrillPosition.created_at.desc(),  # ← add this
+        )
         .limit(limit)
     )
     drills = session.exec(stmt).all()
