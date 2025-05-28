@@ -1,7 +1,7 @@
 # Default to your local Postgres URL; override by exporting DATABASE_URL first
 DATABASE_URL ?= postgresql://bf_local:secret@localhost:5432/blunderfixer_local
 
-.PHONY: dev dbshell destroy-db worker
+.PHONY: dev dbshell destroy-db worker sync_all
 
 dev:
 	dotenv run -- uvicorn app.main:app --reload
@@ -22,3 +22,7 @@ dbshell:
 worker:
 	@echo "📢 Starting drill worker…"
 	dotenv run -- bash -lc "/usr/bin/time -l python -m app.worker --once"
+
+sync_all:
+	@echo "🔄 Syncing all drills…"
+	curl -X POST http://localhost:8000/sync_all
