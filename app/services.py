@@ -65,7 +65,7 @@ def unpack_archive(archive_id: str):
                 # Timestamps
                 dt = datetime.strptime(
                     f"{hv('UTCDate')} {hv('UTCTime')}", "%Y.%m.%d %H:%M:%S"
-                )
+                ).replace(tzinfo=timezone.utc)
                 end_time = datetime.fromtimestamp(obj.get("end_time", 0), timezone.utc)
 
                 # Build and insert the Game row
