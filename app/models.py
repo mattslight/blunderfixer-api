@@ -111,15 +111,24 @@ class DrillPosition(SQLModel, table=True):
     game_id: str = Field(
         sa_column=Column(String, ForeignKey("game.id"), nullable=False)
     )
-    username: str = Field(sa_column=Column(String, nullable=False))
-    fen: str = Field(sa_column=Column(String, nullable=False))
-    ply: int = Field(sa_column=Column(Integer, nullable=False))
-    eval_swing: float = Field(sa_column=Column(Float, nullable=False))
+    game: "Game" = Relationship(back_populates="drill_positions")
+
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
-    game: "Game" = Relationship(back_populates="drill_positions")
+
+    username: str = Field(sa_column=Column(String, nullable=False))
+    fen: str = Field(sa_column=Column(String, nullable=False))
+    ply: int = Field(sa_column=Column(Integer, nullable=False))
+    eval_swing: float = Field(sa_column=Column(Float, nullable=False))
+
+    white_minor_count: int = Field(default=0, sa_column=Column(Integer))
+    black_minor_count: int = Field(default=0, sa_column=Column(Integer))
+    white_rook_count: int = Field(default=0, sa_column=Column(Integer))
+    black_rook_count: int = Field(default=0, sa_column=Column(Integer))
+    white_queen: bool = Field(default=False, sa_column=Column(Boolean))
+    black_queen: bool = Field(default=False, sa_column=Column(Boolean))
 
 
 class Job(SQLModel, table=True):
