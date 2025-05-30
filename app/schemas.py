@@ -53,6 +53,7 @@ class DrillPositionResponse(BaseModel):
     opponent_username: str
     opponent_rating: int
     played_at: datetime
+    phase: str
 
     class Config:
         orm_mode = True
