@@ -1,7 +1,9 @@
+import sys  # for “infinite” default
 from math import ceil
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import and_, or_  # NEW
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
@@ -64,45 +66,79 @@ def classify_phase(
 
 @router.get("/", response_model=List[DrillPositionResponse])
 def list_drills(
-    username: str = Query(..., description="Hero username to fetch drills for"),
+    username: str = Query(..., description="Hero username"),
     limit: int = Query(100, ge=1, le=200),
-    opening_threshold: int = Query(
-        10, ge=1, description="Max full-move number for 'opening' phase"
+    opening_threshold: int = Query(10, ge=1),
+    # NEW FILTERS ↓↓↓
+    min_eval_swing: int = Query(
+        0, ge=0, description="Keep positions with eval_swing ≥ this"
+    ),
+    max_eval_swing: int = Query(
+        sys.maxsize, ge=0, description="Keep positions with eval_swing ≤ this"
+    ),
+    phases: Optional[List[str]] = Query(
+        None, alias="phases", description="Allowed phases (opening|middle|late|endgame)"
+    ),
+    hero_results: Optional[List[str]] = Query(
+        None, alias="hero_results", description="Allowed hero results (win|loss|draw)"
+    ),
+    opponent: Optional[str] = Query(  # ← NEW
+        None,
+        description="Case-insensitive substring match for opponent username",
     ),
     session: Session = Depends(get_session),
 ) -> List[DrillPositionResponse]:
+    # --- DB-level filters -------------------------------
     stmt = (
         select(DrillPosition)
         .join(DrillPosition.game)
         .options(selectinload(DrillPosition.game))
-        .where(DrillPosition.username == username)
-        .order_by(
-            Game.played_at.desc(),
-            DrillPosition.created_at.desc(),
+        .where(
+            DrillPosition.username == username,
+            DrillPosition.eval_swing >= min_eval_swing,
+            DrillPosition.eval_swing <= max_eval_swing,
         )
+        .order_by(Game.played_at.desc(), DrillPosition.created_at.desc())
         .limit(limit)
+    )
+    # --- opponent filter (DB-level) -------------
+    if opponent:
+        pattern = f"%{opponent}%"  # partial, case-insensitive
+        stmt = stmt.where(
+            or_(
+                and_(
+                    DrillPosition.username == Game.white_username,
+                    Game.black_username.ilike(pattern),
+                ),
+                and_(
+                    DrillPosition.username == Game.black_username,
+                    Game.white_username.ilike(pattern),
+                ),
+            )
+        )
+    stmt = stmt.order_by(Game.played_at.desc(), DrillPosition.created_at.desc()).limit(
+        limit
     )
     drills = session.exec(stmt).all()
     if not drills:
         return []
+
+    allow_all_phases = not phases  # None or empty list → no filtering
+    allow_all_results = not hero_results
+    allowed_phases = set(phases or ())
+    allowed_results = set(hero_results or ())
 
     resp: List[DrillPositionResponse] = []
     for d in drills:
         g = d.game
         is_white = d.username == g.white_username
 
-        # derive result
         hero_raw = g.white_result if is_white else g.black_result
         opp_raw = g.black_result if is_white else g.white_result
         draw = g.white_result == g.black_result
-        if hero_raw == "win":
-            hero_result, result_reason = "win", opp_raw
-        elif draw:
-            hero_result, result_reason = "draw", hero_raw
-        else:
-            hero_result, result_reason = "loss", hero_raw
+        hero_result = "win" if hero_raw == "win" else "draw" if draw else "loss"
+        result_reason = opp_raw if hero_result == "win" else hero_raw
 
-        # classify phase
         phase = classify_phase(
             d.ply,
             d.white_queen,
@@ -113,6 +149,12 @@ def list_drills(
             d.black_minor_count,
             opening_threshold,
         )
+
+        # --- in-memory filters ---------------------------
+        if (not allow_all_phases and phase not in allowed_phases) or (
+            not allow_all_results and hero_result not in allowed_results
+        ):
+            continue
 
         resp.append(
             DrillPositionResponse(
