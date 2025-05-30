@@ -1,9 +1,21 @@
-import sys  # for “infinite” default
+"""/drills endpoint  –  self‑contained, readable version
+
+Key ideas
+──────────
+•  Pure‑SQL filters for username, eval‑swing, opponent substring ➜ fast.
+•  Phase/result filters need derived info ➜ done in Python, *then* capped to `limit`.
+•  Progressive batching (batch = limit×4) avoids loading the whole table when it’s big.
+•  All external inputs normalised/cast early so the rest of the code is type‑safe.
+
+All variable names aim to be self‑explanatory; short in‑line comments explain every non‑obvious step.
+"""
+
+import sys
 from math import ceil
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, or_  # NEW
+from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
@@ -12,6 +24,10 @@ from app.models import DrillPosition, Game
 from app.schemas import DrillPositionResponse
 
 router = APIRouter(prefix="/drills", tags=["drills"])
+
+# ---------------------------------------------------------------------------
+# Helper: phase classifier
+# ---------------------------------------------------------------------------
 
 
 def classify_phase(
@@ -24,20 +40,11 @@ def classify_phase(
     black_minor_count: Optional[int],
     opening_move_threshold: int = 10,
 ) -> str:
-    """
-    Return one of: 'opening', 'middle', 'late', 'endgame'.
+    """Return one of  opening | middle | late | endgame  for a given position."""
 
-    Rules (v2):
-    • Opening  – move < 10  AND at least one queen on board
-    • Otherwise:
-        material = queens*2 + rooks + minors   (both sides)
-        ≥5  → middle
-        3–4 → late
-        ≤2 → endgame
-    """
-    move_number = ceil(ply / 2)
+    move_no = ceil(ply / 2)
 
-    # Fallback when data is missing
+    # If any material fields are missing we fall back to a coarse heuristic
     if None in (
         has_white_queen,
         has_black_queen,
@@ -46,135 +53,145 @@ def classify_phase(
         white_minor_count,
         black_minor_count,
     ):
-        return "opening" if move_number < opening_move_threshold else "middle"
+        return "opening" if move_no < opening_move_threshold else "middle"
 
-    total_queens = int(has_white_queen) + int(has_black_queen)
-    if move_number < opening_move_threshold and total_queens:
+    # Opening: before threshold and ≥1 queen still on board
+    if move_no < opening_move_threshold and (has_white_queen or has_black_queen):
         return "opening"
 
-    # per-side, take the larger side’s score
+    # Otherwise evaluate material balance on the richer side
     white_pts = int(has_white_queen) * 2 + white_rook_count + white_minor_count
     black_pts = int(has_black_queen) * 2 + black_rook_count + black_minor_count
-    material_pts = max(white_pts, black_pts)
+    material = max(white_pts, black_pts)
 
-    if material_pts >= 5:
+    if material >= 5:
         return "middle"
-    if material_pts >= 3:  # 3-4
+    if material >= 3:  # 3–4 points
         return "late"
     return "endgame"
+
+
+# ---------------------------------------------------------------------------
+# Main route
+# ---------------------------------------------------------------------------
 
 
 @router.get("/", response_model=List[DrillPositionResponse])
 def list_drills(
     username: str = Query(..., description="Hero username"),
-    limit: int = Query(100, ge=1, le=200),
-    opening_threshold: int = Query(10, ge=1),
-    # NEW FILTERS ↓↓↓
-    min_eval_swing: int = Query(
-        0, ge=0, description="Keep positions with eval_swing ≥ this"
+    limit: int = Query(100, ge=1, le=200, description="Max rows to return"),
+    opening_threshold: int = Query(
+        10, ge=1, description="Full‑move boundary for opening"
     ),
-    max_eval_swing: int = Query(
-        sys.maxsize, ge=0, description="Keep positions with eval_swing ≤ this"
-    ),
+    # Swing bounds – floats accepted for convenience, cast to int (centipawns) for SQL
+    min_eval_swing: float = Query(0, ge=0),
+    max_eval_swing: float = Query(float("inf"), ge=0),
     phases: Optional[List[str]] = Query(
-        None, alias="phases", description="Allowed phases (opening|middle|late|endgame)"
+        None, description="opening|middle|late|endgame"
     ),
-    hero_results: Optional[List[str]] = Query(
-        None, alias="hero_results", description="Allowed hero results (win|loss|draw)"
-    ),
-    opponent: Optional[str] = Query(  # ← NEW
-        None,
-        description="Case-insensitive substring match for opponent username",
+    hero_results: Optional[List[str]] = Query(None, description="win|loss|draw"),
+    opponent: Optional[str] = Query(
+        None, description="Substring match (ILIKE) for opponent username"
     ),
     session: Session = Depends(get_session),
 ) -> List[DrillPositionResponse]:
-    # --- DB-level filters -------------------------------
-    stmt = (
-        select(DrillPosition)
-        .join(DrillPosition.game)
-        .options(selectinload(DrillPosition.game))
-        .where(
-            DrillPosition.username == username,
-            DrillPosition.eval_swing >= min_eval_swing,
-            DrillPosition.eval_swing <= max_eval_swing,
-        )
-        .order_by(Game.played_at.desc(), DrillPosition.created_at.desc())
-        .limit(limit)
-    )
-    # --- opponent filter (DB-level) -------------
-    if opponent:
-        pattern = f"%{opponent}%"  # partial, case-insensitive
-        stmt = stmt.where(
-            or_(
-                and_(
-                    DrillPosition.username == Game.white_username,
-                    Game.black_username.ilike(pattern),
-                ),
-                and_(
-                    DrillPosition.username == Game.black_username,
-                    Game.white_username.ilike(pattern),
-                ),
+
+    # --- Normalise external inputs -----------------------------------------
+    min_eval_cp = int(min_eval_swing)
+    max_eval_cp = sys.maxsize if max_eval_swing == float("inf") else int(max_eval_swing)
+
+    phase_whitelist = {p.lower() for p in phases or []}
+    result_whitelist = {r.lower() for r in hero_results or []}
+
+    # Batch size for progressive fetch: 4× requested limit is a good trade‑off
+    batch_size = limit * 4
+    offset = 0
+    results: List[DrillPositionResponse] = []
+
+    while len(results) < limit:
+        # ----------------- SQL build (cheap filters only) -------------------
+        query = (
+            select(DrillPosition)
+            .join(DrillPosition.game)
+            .options(selectinload(DrillPosition.game))
+            .where(
+                DrillPosition.username == username,
+                DrillPosition.eval_swing >= min_eval_cp,
+                DrillPosition.eval_swing <= max_eval_cp,
             )
-        )
-    stmt = stmt.order_by(Game.played_at.desc(), DrillPosition.created_at.desc()).limit(
-        limit
-    )
-    drills = session.exec(stmt).all()
-    if not drills:
-        return []
-
-    allow_all_phases = not phases  # None or empty list → no filtering
-    allow_all_results = not hero_results
-    allowed_phases = set(phases or ())
-    allowed_results = set(hero_results or ())
-
-    resp: List[DrillPositionResponse] = []
-    for d in drills:
-        g = d.game
-        is_white = d.username == g.white_username
-
-        hero_raw = g.white_result if is_white else g.black_result
-        opp_raw = g.black_result if is_white else g.white_result
-        draw = g.white_result == g.black_result
-        hero_result = "win" if hero_raw == "win" else "draw" if draw else "loss"
-        result_reason = opp_raw if hero_result == "win" else hero_raw
-
-        phase = classify_phase(
-            d.ply,
-            d.white_queen,
-            d.black_queen,
-            d.white_rook_count,
-            d.black_rook_count,
-            d.white_minor_count,
-            d.black_minor_count,
-            opening_threshold,
+            .order_by(Game.played_at.desc(), DrillPosition.created_at.desc())
+            .offset(offset)
+            .limit(batch_size)
         )
 
-        # --- in-memory filters ---------------------------
-        if (not allow_all_phases and phase not in allowed_phases) or (
-            not allow_all_results and hero_result not in allowed_results
-        ):
-            continue
-
-        resp.append(
-            DrillPositionResponse(
-                id=d.id,
-                game_id=d.game_id,
-                username=d.username,
-                fen=d.fen,
-                ply=d.ply,
-                eval_swing=d.eval_swing,
-                created_at=d.created_at,
-                hero_result=hero_result,
-                result_reason=result_reason,
-                time_control=g.time_control,
-                time_class=g.time_class,
-                hero_rating=g.white_rating if is_white else g.black_rating,
-                opponent_username=g.black_username if is_white else g.white_username,
-                opponent_rating=g.black_rating if is_white else g.white_rating,
-                played_at=g.played_at,
-                phase=phase,
+        if opponent:
+            opponent_like = f"%{opponent}%"
+            query = query.where(
+                or_(
+                    Game.white_username.ilike(opponent_like),
+                    Game.black_username.ilike(opponent_like),
+                )
             )
-        )
 
-    return resp
+        rows = session.exec(query).all()
+        if not rows:  # ran out of data
+            break
+
+        # ----------------- Python‑level filters ----------------------------
+        for dp in rows:
+            game = dp.game
+            hero_is_white = dp.username == game.white_username
+
+            hero_raw = game.white_result if hero_is_white else game.black_result
+            opp_raw = game.black_result if hero_is_white else game.white_result
+            is_draw = game.white_result == game.black_result
+            hero_res = "win" if hero_raw == "win" else "draw" if is_draw else "loss"
+
+            if result_whitelist and hero_res not in result_whitelist:
+                continue
+
+            phase = classify_phase(
+                dp.ply,
+                dp.white_queen,
+                dp.black_queen,
+                dp.white_rook_count,
+                dp.black_rook_count,
+                dp.white_minor_count,
+                dp.black_minor_count,
+                opening_threshold,
+            )
+            if phase_whitelist and phase not in phase_whitelist:
+                continue
+
+            results.append(
+                DrillPositionResponse(
+                    id=dp.id,
+                    game_id=dp.game_id,
+                    username=dp.username,
+                    fen=dp.fen,
+                    ply=dp.ply,
+                    eval_swing=dp.eval_swing,
+                    created_at=dp.created_at,
+                    hero_result=hero_res,
+                    result_reason=opp_raw if hero_res == "win" else hero_raw,
+                    time_control=game.time_control,
+                    time_class=game.time_class,
+                    hero_rating=(
+                        game.white_rating if hero_is_white else game.black_rating
+                    ),
+                    opponent_username=(
+                        game.black_username if hero_is_white else game.white_username
+                    ),
+                    opponent_rating=(
+                        game.black_rating if hero_is_white else game.white_rating
+                    ),
+                    played_at=game.played_at,
+                    phase=phase,
+                )
+            )
+            if len(results) == limit:
+                break
+
+        offset += batch_size  # next SQL window
+
+    return results[:limit]  # safety slice (rarely needed)
