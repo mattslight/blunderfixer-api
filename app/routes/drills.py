@@ -14,7 +14,7 @@ import sys
 from math import ceil
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
@@ -195,3 +195,50 @@ def list_drills(
         offset += batch_size  # next SQL window
 
     return results[:limit]  # safety slice (rarely needed)
+
+
+@router.get("/{id}", response_model=DrillPositionResponse)
+def get_drill(
+    id: int,
+    session: Session = Depends(get_session),
+) -> DrillPositionResponse:
+    drill = session.get(DrillPosition, id)
+    if not drill:
+        raise HTTPException(status_code=404, detail="Drill not found")
+
+    game = drill.game
+    hero_is_white = drill.username == game.white_username
+
+    hero_raw = game.white_result if hero_is_white else game.black_result
+    opp_raw = game.black_result if hero_is_white else game.white_result
+    is_draw = game.white_result == game.black_result
+    hero_res = "win" if hero_raw == "win" else "draw" if is_draw else "loss"
+
+    phase = classify_phase(
+        drill.ply,
+        drill.white_queen,
+        drill.black_queen,
+        drill.white_rook_count,
+        drill.black_rook_count,
+        drill.white_minor_count,
+        drill.black_minor_count,
+    )
+
+    return DrillPositionResponse(
+        id=drill.id,
+        game_id=drill.game_id,
+        username=drill.username,
+        fen=drill.fen,
+        ply=drill.ply,
+        eval_swing=drill.eval_swing,
+        created_at=drill.created_at,
+        hero_result=hero_res,
+        result_reason=opp_raw if hero_res == "win" else hero_raw,
+        time_control=game.time_control,
+        time_class=game.time_class,
+        hero_rating=game.white_rating if hero_is_white else game.black_rating,
+        opponent_username=game.black_username if hero_is_white else game.white_username,
+        opponent_rating=game.black_rating if hero_is_white else game.white_rating,
+        played_at=game.played_at,
+        phase=phase,
+    )
