@@ -37,6 +37,22 @@ class SyncStatusResponse(BaseModel):
     error: Optional[str]
 
 
+class DrillHistoryCreate(BaseModel):
+    drill_position_id: int
+    result: str  # 'win' | 'loss' | 'draw'
+    timestamp: Optional[datetime] = None  # optional, defaults to now if omitted
+
+
+class DrillHistoryRead(BaseModel):
+    id: int
+    drill_position_id: int
+    result: str
+    timestamp: datetime
+
+    class Config:
+        orm_mode = True
+
+
 class DrillPositionResponse(BaseModel):
     id: int
     game_id: str
@@ -54,6 +70,7 @@ class DrillPositionResponse(BaseModel):
     opponent_rating: int
     played_at: datetime
     phase: str
+    history: list[DrillHistoryRead] = []
 
     class Config:
         orm_mode = True

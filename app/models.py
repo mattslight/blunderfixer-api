@@ -130,6 +130,22 @@ class DrillPosition(SQLModel, table=True):
     white_queen: bool = Field(default=False, sa_column=Column(Boolean))
     black_queen: bool = Field(default=False, sa_column=Column(Boolean))
 
+    history: List["DrillHistory"] = Relationship(back_populates="drill_position")
+
+
+class DrillHistory(SQLModel, table=True):
+    __tablename__ = "drillhistory"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    drill_position_id: int = Field(foreign_key="drillposition.id", nullable=False)
+    result: str = Field(sa_column=Column(String, nullable=False))  # win/loss/draw
+    timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+    drill_position: "DrillPosition" = Relationship(back_populates="history")
+
 
 class Job(SQLModel, table=True):
     __table_args__ = ({"comment": "Background sync job records"},)

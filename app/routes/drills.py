@@ -11,17 +11,18 @@ All variable names aim to be self‑explanatory; short in‑line comments explai
 """
 
 import sys
+from datetime import datetime, timezone
 from math import ceil
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
 from sqlalchemy import or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import DrillPosition, Game
-from app.schemas import DrillPositionResponse
+from app.models import DrillHistory, DrillPosition, Game
+from app.schemas import DrillHistoryCreate, DrillHistoryRead, DrillPositionResponse
 
 router = APIRouter(prefix="/drills", tags=["drills"])
 
@@ -113,7 +114,10 @@ def list_drills(
         query = (
             select(DrillPosition)
             .join(DrillPosition.game)
-            .options(selectinload(DrillPosition.game))
+            .options(
+                selectinload(DrillPosition.game),
+                selectinload(DrillPosition.history),
+            )
             .where(
                 DrillPosition.username == username,
                 DrillPosition.eval_swing >= min_eval_cp,
@@ -187,6 +191,7 @@ def list_drills(
                     ),
                     played_at=game.played_at,
                     phase=phase,
+                    history=[DrillHistoryRead.from_orm(h) for h in dp.history],
                 )
             )
             if len(results) == limit:
@@ -202,7 +207,15 @@ def get_drill(
     id: int,
     session: Session = Depends(get_session),
 ) -> DrillPositionResponse:
-    drill = session.get(DrillPosition, id)
+    stmt = (
+        select(DrillPosition)
+        .where(DrillPosition.id == id)
+        .options(
+            selectinload(DrillPosition.game),
+            selectinload(DrillPosition.history),  # ? eagerly load history
+        )
+    )
+    drill: DrillPosition = session.exec(stmt).one_or_none()
     if not drill:
         raise HTTPException(status_code=404, detail="Drill not found")
 
@@ -241,4 +254,67 @@ def get_drill(
         opponent_rating=game.black_rating if hero_is_white else game.white_rating,
         played_at=game.played_at,
         phase=phase,
+        history=[DrillHistoryRead.from_orm(h) for h in drill.history],
     )
+
+
+@router.get("/{drill_id}/history", response_model=list[DrillHistoryRead])
+def read_drill_history(
+    *,
+    drill_id: int = Path(..., description="ID of the drill position"),
+    session: Session = Depends(get_session),
+):
+    """
+    Fetch all history entries for a given drill_position_id,
+    ordered by timestamp descending.
+    """
+    statement = (
+        select(DrillHistory)
+        .where(DrillHistory.drill_position_id == drill_id)
+        .order_by(DrillHistory.timestamp.desc())
+    )
+    history_rows = session.exec(statement).all()
+    return history_rows
+
+
+@router.post(
+    "/{drill_id}/history",
+    response_model=DrillHistoryRead,
+    status_code=201,
+)
+def create_drill_history(
+    *,
+    drill_id: int = Path(..., description="ID of the drill position"),
+    payload: DrillHistoryCreate = Body(
+        ..., description="Result payload: 'win' | 'loss' | 'draw', optional timestamp"
+    ),
+    session: Session = Depends(get_session),
+):
+    """
+    Record a new history entry for drill_position_id == drill_id.
+    - `payload.result` must be 'win', 'loss' or 'draw'.
+    - `payload.timestamp` defaults to now if omitted.
+    """
+    # (Optional) Verify that the DrillPosition exists:
+    from app.models import DrillPosition
+
+    # Check payload
+    result_lower = payload.result.lower()
+    if result_lower not in {"win", "loss", "draw"}:
+        raise HTTPException(status_code=400, detail="Invalid result")
+
+    dp = session.get(DrillPosition, drill_id)
+    if not dp:
+        raise HTTPException(status_code=404, detail="DrillPosition not found")
+
+    # Create & insert
+    ts = payload.timestamp or datetime.now(timezone.utc)
+    new_hist = DrillHistory(
+        drill_position_id=drill_id,
+        result=result_lower,
+        timestamp=ts,
+    )
+    session.add(new_hist)
+    session.commit()
+    session.refresh(new_hist)
+    return new_hist
