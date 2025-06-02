@@ -13,29 +13,43 @@ from sqlmodel import Session, select
 from app.db import engine as db_engine
 from app.models import DrillPosition, DrillQueue, Game
 
+# ─── Config ────────────────────────────────────────────────────────────────
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
-SWING_THRESHOLD = 100  # flag any single-move swing ≥ 1 pawns
+SWING_THRESHOLD = 100  # flag any single-move swing ≥ 1 pawn
 
 
+# ─── Evaluation Function ────────────────────────────────────────────────────
 def get_cp(info):
-    score_obj = info["score"].white()
-    if score_obj.is_mate():
-        return float(1e4 if score_obj.mate() > 0 else -1e4)
-    return float(score_obj.score())
+    """
+    Extract centipawn/mate score from Stockfish analysis, normalized to White's POV.
+    +ve = good for White, -ve = good for Black.
+    """
+    score_obj = info["score"]
+    mate_score = score_obj.pov(chess.WHITE).mate()
+    cp_score = score_obj.pov(chess.WHITE).score()
+
+    if mate_score is not None:
+        raw_score = 10000 - abs(mate_score)
+        return raw_score if mate_score > 0 else -raw_score
+    elif cp_score is not None:
+        return cp_score
+    else:
+        return 0.0  # Fallback in rare cases
 
 
+# ─── Drill Extraction Logic ─────────────────────────────────────────────────
 def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
     """
-    Scan the game and return positions where the *hero* (not the opponent)
-    loses ≥ SWING_THRESHOLD centipawns in a single move.
+    Scan a game and return drill-worthy positions where the *hero* loses
+    ≥ SWING_THRESHOLD centipawns in a single move.
 
-    Returns: List[(fen_before_move, ply_index, delta_cp)]
+    Returns: List of (fen_before_move, ply_index, eval_swing, initial_eval)
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
     if not game:
         return []
 
-    drills: list[tuple[str, int, float]] = []
+    drills: list[tuple[str, int, float, float]] = []
     ply_idx = 0
     node = game
 
@@ -43,16 +57,21 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
         mover_side = "w" if node.board().turn else "b"
         if mover_side == hero_side:
             fen_before = node.board().fen()
-            cp_before = get_cp(sf.analyse(node.board(), Limit(depth=12)))
+            cp_before = get_cp(
+                sf.analyse(node.board(), Limit(depth=18))
+            )  # Eval before move
 
             node = node.variation(0)
-            cp_after = get_cp(sf.analyse(node.board(), Limit(depth=12)))
+            cp_after = get_cp(
+                sf.analyse(node.board(), Limit(depth=18))
+            )  # Eval after move
 
+            # Compute swing from hero's perspective
             sign = 1 if hero_side == "w" else -1
             delta = sign * (cp_before - cp_after)
 
             if delta >= SWING_THRESHOLD:
-                drills.append((fen_before, ply_idx, delta))
+                drills.append((fen_before, ply_idx, delta, cp_before))
         else:
             node = node.variation(0)
 
@@ -61,8 +80,8 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
     return drills
 
 
+# ─── Process a Single DrillQueue Entry ──────────────────────────────────────
 def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
-    # Load the queue entry
     with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
         if not dq:
@@ -72,17 +91,19 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
         if not game:
             return queue_id
 
-        # Determine which side we're analyzing
+        # Determine hero side (white or black)
         hero_side = (
             "w" if dq.hero_username.lower() == game.white_username.lower() else "b"
         )
 
         rows = []
-        # Walk through game positions and detect drills
-        for fen, ply, swing in shallow_drills_for_hero(sf, game.pgn, hero_side):
+        # Extract drills from the game
+        for fen, ply, swing, initial_eval in shallow_drills_for_hero(
+            sf, game.pgn, hero_side
+        ):
             board = chess.Board(fen)
 
-            # Material counts
+            # Count material for phase classification
             white_minor_count = len(board.pieces(chess.BISHOP, chess.WHITE)) + len(
                 board.pieces(chess.KNIGHT, chess.WHITE)
             )
@@ -94,14 +115,14 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             white_queen = bool(board.pieces(chess.QUEEN, chess.WHITE))
             black_queen = bool(board.pieces(chess.QUEEN, chess.BLACK))
 
-            # Classification logic should run at read-time using these counts.
-            # Here we just collect the data.
+            # Build DrillPosition row with initial_eval
             rows.append(
                 DrillPosition(
                     game_id=game.id,
                     username=dq.hero_username,
                     fen=fen,
                     ply=ply,
+                    initial_eval=initial_eval,
                     eval_swing=swing,
                     white_minor_count=white_minor_count,
                     black_minor_count=black_minor_count,
@@ -122,6 +143,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                         "username": row.username,
                         "fen": row.fen,
                         "ply": row.ply,
+                        "initial_eval": row.initial_eval,
                         "eval_swing": row.eval_swing,
                         "white_minor_count": row.white_minor_count,
                         "black_minor_count": row.black_minor_count,
@@ -140,7 +162,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             session.execute(stmt)
             session.commit()
 
-        # Mark processed
+        # Mark queue as processed
         dq.drills_processed = True
         dq.drilled_at = datetime.now(timezone.utc)
         session.add(dq)
@@ -149,6 +171,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
     return queue_id
 
 
+# ─── Fetch Next Unprocessed Queue Entries ──────────────────────────────────
 def fetch_next_batch(limit: int) -> list[str]:
     with Session(db_engine) as session:
         stmt = (
@@ -159,6 +182,7 @@ def fetch_next_batch(limit: int) -> list[str]:
         return session.exec(stmt).all()
 
 
+# ─── Worker Entry Point ────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Drill worker runner")
     parser.add_argument(
