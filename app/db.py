@@ -24,7 +24,7 @@ engine = create_engine(
 )
 
 # Ensure all tables exist (idempotent)
-SQLModel.metadata.create_all(engine)
+# SQLModel.metadata.create_all(engine)
 
 # Immediately after creating the engine, log what SQLAlchemy thinks the URL is:
 # this will expand sqlite file paths or canonicalize postgres URLs

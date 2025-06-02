@@ -59,6 +59,7 @@ class DrillPositionResponse(BaseModel):
     username: str
     fen: str
     ply: int
+    initial_eval: float
     eval_swing: float
     created_at: datetime
     hero_result: str

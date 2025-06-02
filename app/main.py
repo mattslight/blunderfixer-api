@@ -20,12 +20,6 @@ from app.routes.player_stats.index import router as player_stats_router
 app = FastAPI()
 
 
-# 🌟 Create all tables on startup
-@app.on_event("startup")
-def on_startup():
-    SQLModel.metadata.create_all(engine)
-
-
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",  # Local dev

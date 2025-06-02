@@ -122,6 +122,7 @@ class DrillPosition(SQLModel, table=True):
     fen: str = Field(sa_column=Column(String, nullable=False))
     ply: int = Field(sa_column=Column(Integer, nullable=False))
     eval_swing: float = Field(sa_column=Column(Float, nullable=False))
+    initial_eval: float = Field(sa_column=Column(Float, nullable=False))
 
     white_minor_count: int = Field(default=0, sa_column=Column(Integer))
     black_minor_count: int = Field(default=0, sa_column=Column(Integer))
@@ -138,7 +139,7 @@ class DrillHistory(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     drill_position_id: int = Field(foreign_key="drillposition.id", nullable=False)
-    result: str = Field(sa_column=Column(String, nullable=False))  # win/loss/draw
+    result: str = Field(sa_column=Column(String, nullable=False))  # 'pass' | 'fail'
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),
