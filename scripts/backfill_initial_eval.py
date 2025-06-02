@@ -19,7 +19,7 @@ load_dotenv(os.path.join(repo_root, ".env"))
 from app.db import engine
 from app.models import DrillPosition
 
-STOCKFISH_PATH = "/opt/homebrew/bin/stockfish"  # Adjust path as needed
+STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "stockfish")
 
 
 def backfill_initial_eval():
