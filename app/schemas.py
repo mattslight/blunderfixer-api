@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AnalyseRequest(BaseModel):
@@ -38,8 +38,8 @@ class SyncStatusResponse(BaseModel):
 
 
 class DrillHistoryCreate(BaseModel):
-    drill_position_id: int
-    result: str  # 'win' | 'loss' | 'draw'
+    result: str  # 'pass' | 'fail'
+    reason: Optional[str] = None
     timestamp: Optional[datetime] = None  # optional, defaults to now if omitted
 
 
@@ -47,10 +47,10 @@ class DrillHistoryRead(BaseModel):
     id: int
     drill_position_id: int
     result: str
+    reason: Optional[str]
     timestamp: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class DrillPositionResponse(BaseModel):
@@ -73,5 +73,4 @@ class DrillPositionResponse(BaseModel):
     phase: str
     history: list[DrillHistoryRead] = []
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

@@ -140,6 +140,7 @@ class DrillHistory(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     drill_position_id: int = Field(foreign_key="drillposition.id", nullable=False)
     result: str = Field(sa_column=Column(String, nullable=False))  # 'pass' | 'fail'
+    reason: str = Field(sa_column=Column(String, nullable=True))
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),

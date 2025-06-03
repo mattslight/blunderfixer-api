@@ -288,13 +288,13 @@ def create_drill_history(
     *,
     drill_id: int = Path(..., description="ID of the drill position"),
     payload: DrillHistoryCreate = Body(
-        ..., description="Result payload: 'win' | 'loss' | 'draw', optional timestamp"
+        ..., description="Result payload: 'pass' | 'fail', optional timestamp"
     ),
     session: Session = Depends(get_session),
 ):
     """
     Record a new history entry for drill_position_id == drill_id.
-    - `payload.result` must be 'win', 'loss' or 'draw'.
+    - `payload.result` must be 'pass' or 'fail'.
     - `payload.timestamp` defaults to now if omitted.
     """
     # (Optional) Verify that the DrillPosition exists:
@@ -302,7 +302,7 @@ def create_drill_history(
 
     # Check payload
     result_lower = payload.result.lower()
-    if result_lower not in {"win", "loss", "draw"}:
+    if result_lower not in {"pass", "fail"}:
         raise HTTPException(status_code=400, detail="Invalid result")
 
     dp = session.get(DrillPosition, drill_id)
@@ -314,6 +314,7 @@ def create_drill_history(
     new_hist = DrillHistory(
         drill_position_id=drill_id,
         result=result_lower,
+        reason=payload.reason,
         timestamp=ts,
     )
     session.add(new_hist)
