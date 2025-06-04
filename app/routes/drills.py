@@ -94,9 +94,9 @@ def list_drills(
     opponent: Optional[str] = Query(
         None, description="Substring match (ILIKE) for opponent username"
     ),
-    include_hidden: bool = Query(
-        False,
-        description="Include drills that are archived or mastered",
+    include: Optional[List[str]] = Query(
+        None,
+        description="Include hidden drills: 'archived' and/or 'mastered'",
     ),
     session: Session = Depends(get_session),
 ) -> List[DrillPositionResponse]:
@@ -107,6 +107,10 @@ def list_drills(
 
     phase_whitelist = {p.lower() for p in phases or []}
     result_whitelist = {r.lower() for r in hero_results or []}
+
+    include_set = {item.lower() for item in include or []}
+    include_archived = "archived" in include_set
+    include_mastered = "mastered" in include_set
 
     # Batch size for progressive fetch: 4× requested limit is a good trade‑off
     batch_size = limit * 4
@@ -120,7 +124,7 @@ def list_drills(
             DrillPosition.eval_swing >= min_eval_cp,
             DrillPosition.eval_swing <= max_eval_cp,
         ]
-        if not include_hidden:
+        if not include_archived:
             filters.append(DrillPosition.archived == False)
 
         query = (
@@ -154,7 +158,7 @@ def list_drills(
             game = dp.game
             hero_is_white = dp.username == game.white_username
 
-            if not include_hidden:
+            if not include_mastered:
                 # Skip drills with 5 most recent passes (mastered)
                 history_sorted = sorted(dp.history, key=lambda h: h.timestamp, reverse=True)
                 recent = history_sorted[:5]
