@@ -72,6 +72,7 @@ class DrillPositionResponse(BaseModel):
     played_at: datetime
     phase: str
     archived: bool
+    mastered: bool
     history: list[DrillHistoryRead] = []
 
     model_config = ConfigDict(from_attributes=True)
