@@ -122,6 +122,7 @@ def list_drills(
                 DrillPosition.username == username,
                 DrillPosition.eval_swing >= min_eval_cp,
                 DrillPosition.eval_swing <= max_eval_cp,
+                DrillPosition.archived == False,
             )
             .order_by(Game.played_at.desc(), DrillPosition.created_at.desc())
             .offset(offset)
@@ -145,6 +146,12 @@ def list_drills(
         for dp in rows:
             game = dp.game
             hero_is_white = dp.username == game.white_username
+
+            # Skip drills with 5 most recent passes (mastered)
+            history_sorted = sorted(dp.history, key=lambda h: h.timestamp, reverse=True)
+            recent = history_sorted[:5]
+            if len(recent) == 5 and all(h.result == "pass" for h in recent):
+                continue
 
             hero_raw = game.white_result if hero_is_white else game.black_result
             opp_raw = game.black_result if hero_is_white else game.white_result

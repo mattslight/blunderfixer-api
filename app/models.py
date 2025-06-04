@@ -131,6 +131,10 @@ class DrillPosition(SQLModel, table=True):
     white_queen: bool = Field(default=False, sa_column=Column(Boolean))
     black_queen: bool = Field(default=False, sa_column=Column(Boolean))
 
+    archived: bool = Field(
+        default=False, sa_column=Column(Boolean, nullable=False, server_default="false")
+    )
+
     history: List["DrillHistory"] = Relationship(back_populates="drill_position")
 
 
