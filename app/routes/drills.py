@@ -22,7 +22,12 @@ from sqlmodel import Session, select
 
 from app.db import get_session
 from app.models import DrillHistory, DrillPosition, Game
-from app.schemas import DrillHistoryCreate, DrillHistoryRead, DrillPositionResponse
+from app.schemas import (
+    DrillUpdateRequest,
+    DrillHistoryCreate,
+    DrillHistoryRead,
+    DrillPositionResponse,
+)
 
 router = APIRouter(prefix="/drills", tags=["drills"])
 
@@ -348,3 +353,29 @@ def create_drill_history(
     session.commit()
     session.refresh(new_hist)
     return new_hist
+
+
+@router.patch(
+    "/{drill_id}",
+    response_model=DrillPositionResponse,
+    status_code=200,
+)
+def update_drill(
+    *,
+    drill_id: int = Path(..., description="ID of the drill position"),
+    payload: DrillUpdateRequest = Body(..., description="Fields to update"),
+    session: Session = Depends(get_session),
+):
+    """Update drill fields declaratively."""
+    dp = session.get(DrillPosition, drill_id)
+    if not dp:
+        raise HTTPException(status_code=404, detail="DrillPosition not found")
+
+    if payload.archived is not None:
+        dp.archived = payload.archived
+
+    session.add(dp)
+    session.commit()
+
+    # Reuse existing retrieval logic for response
+    return get_drill(drill_id, session=session)
