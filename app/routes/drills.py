@@ -94,6 +94,10 @@ def list_drills(
     opponent: Optional[str] = Query(
         None, description="Substring match (ILIKE) for opponent username"
     ),
+    include_hidden: bool = Query(
+        False,
+        description="Include drills that are archived or mastered",
+    ),
     session: Session = Depends(get_session),
 ) -> List[DrillPositionResponse]:
 
@@ -111,6 +115,14 @@ def list_drills(
 
     while len(results) < limit:
         # ----------------- SQL build (cheap filters only) -------------------
+        filters = [
+            DrillPosition.username == username,
+            DrillPosition.eval_swing >= min_eval_cp,
+            DrillPosition.eval_swing <= max_eval_cp,
+        ]
+        if not include_hidden:
+            filters.append(DrillPosition.archived == False)
+
         query = (
             select(DrillPosition)
             .join(DrillPosition.game)
@@ -118,12 +130,7 @@ def list_drills(
                 selectinload(DrillPosition.game),
                 selectinload(DrillPosition.history),
             )
-            .where(
-                DrillPosition.username == username,
-                DrillPosition.eval_swing >= min_eval_cp,
-                DrillPosition.eval_swing <= max_eval_cp,
-                DrillPosition.archived == False,
-            )
+            .where(*filters)
             .order_by(Game.played_at.desc(), DrillPosition.created_at.desc())
             .offset(offset)
             .limit(batch_size)
@@ -147,11 +154,12 @@ def list_drills(
             game = dp.game
             hero_is_white = dp.username == game.white_username
 
-            # Skip drills with 5 most recent passes (mastered)
-            history_sorted = sorted(dp.history, key=lambda h: h.timestamp, reverse=True)
-            recent = history_sorted[:5]
-            if len(recent) == 5 and all(h.result == "pass" for h in recent):
-                continue
+            if not include_hidden:
+                # Skip drills with 5 most recent passes (mastered)
+                history_sorted = sorted(dp.history, key=lambda h: h.timestamp, reverse=True)
+                recent = history_sorted[:5]
+                if len(recent) == 5 and all(h.result == "pass" for h in recent):
+                    continue
 
             hero_raw = game.white_result if hero_is_white else game.black_result
             opp_raw = game.black_result if hero_is_white else game.white_result
@@ -199,6 +207,7 @@ def list_drills(
                     ),
                     played_at=game.played_at,
                     phase=phase,
+                    archived=dp.archived,
                     history=[DrillHistoryRead.from_orm(h) for h in dp.history],
                 )
             )
@@ -263,6 +272,7 @@ def get_drill(
         opponent_rating=game.black_rating if hero_is_white else game.white_rating,
         played_at=game.played_at,
         phase=phase,
+        archived=drill.archived,
         history=[DrillHistoryRead.from_orm(h) for h in drill.history],
     )
 
