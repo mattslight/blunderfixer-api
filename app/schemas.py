@@ -76,3 +76,9 @@ class DrillPositionResponse(BaseModel):
     history: list[DrillHistoryRead] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class DrillUpdateRequest(BaseModel):
+    """Fields that can be updated on a drill."""
+
+    archived: Optional[bool] = None
