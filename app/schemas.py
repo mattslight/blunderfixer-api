@@ -69,12 +69,12 @@ class DrillPositionResponse(BaseModel):
     hero_rating: int
     opponent_username: str
     opponent_rating: int
-    played_at: datetime
+    game_played_at: datetime
     phase: str
     archived: bool
     mastered: bool
     history: list[DrillHistoryRead] = []
-
+    last_drilled_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -82,3 +82,4 @@ class DrillUpdateRequest(BaseModel):
     """Fields that can be updated on a drill."""
 
     archived: Optional[bool] = None
+    mark_played: Optional[bool] = None

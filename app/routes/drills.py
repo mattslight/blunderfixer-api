@@ -16,17 +16,17 @@ from math import ceil
 from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
-from sqlalchemy import or_
+from sqlalchemy import nullsfirst, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
 from app.db import get_session
 from app.models import DrillHistory, DrillPosition, Game
 from app.schemas import (
-    DrillUpdateRequest,
     DrillHistoryCreate,
     DrillHistoryRead,
     DrillPositionResponse,
+    DrillUpdateRequest,
 )
 
 router = APIRouter(prefix="/drills", tags=["drills"])
@@ -140,7 +140,11 @@ def list_drills(
                 selectinload(DrillPosition.history),
             )
             .where(*filters)
-            .order_by(Game.played_at.desc(), DrillPosition.created_at.desc())
+            .order_by(
+                nullsfirst(DrillPosition.last_drilled_at.asc()),
+                Game.played_at.desc(),
+                DrillPosition.created_at.desc(),
+            )
             .offset(offset)
             .limit(batch_size)
         )
@@ -214,11 +218,12 @@ def list_drills(
                     opponent_rating=(
                         game.black_rating if hero_is_white else game.white_rating
                     ),
-                    played_at=game.played_at,
+                    game_played_at=game.played_at,
                     phase=phase,
                     mastered=mastered,
                     archived=dp.archived,
                     history=[DrillHistoryRead.from_orm(h) for h in dp.history],
+                    last_drilled_at=dp.last_drilled_at,
                 )
             )
             if len(results) == limit:
@@ -284,11 +289,12 @@ def get_drill(
         hero_rating=game.white_rating if hero_is_white else game.black_rating,
         opponent_username=game.black_username if hero_is_white else game.white_username,
         opponent_rating=game.black_rating if hero_is_white else game.white_rating,
-        played_at=game.played_at,
+        game_played_at=game.played_at,
         phase=phase,
         mastered=mastered,
         archived=drill.archived,
         history=[DrillHistoryRead.from_orm(h) for h in drill.history],
+        last_drilled_at=drill.last_drilled_at,
     )
 
 
@@ -349,6 +355,9 @@ def create_drill_history(
         reason=payload.reason,
         timestamp=ts,
     )
+
+    dp.last_drilled_at = ts
+
     session.add(new_hist)
     session.commit()
     session.refresh(new_hist)
@@ -373,6 +382,9 @@ def update_drill(
 
     if payload.archived is not None:
         dp.archived = payload.archived
+
+    if payload.mark_played:
+        dp.last_drilled_at = datetime.now(timezone.utc)
 
     session.add(dp)
     session.commit()
