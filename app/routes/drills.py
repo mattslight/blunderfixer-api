@@ -101,6 +101,13 @@ def list_drills(
     session: Session = Depends(get_session),
 ) -> List[DrillPositionResponse]:
 
+    """List practice drills for a user.
+
+    Archived drills or those already mastered (5 consecutive passes) are
+    hidden by default. They can be returned by specifying ``include`` with
+    ``"archived"`` and/or ``"mastered"``.
+    """
+
     # --- Normalise external inputs -----------------------------------------
     min_eval_cp = int(min_eval_swing)
     max_eval_cp = sys.maxsize if max_eval_swing == float("inf") else int(max_eval_swing)
