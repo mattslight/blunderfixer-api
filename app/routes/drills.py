@@ -299,8 +299,12 @@ def recent_drills(
                 time_control=game.time_control,
                 time_class=game.time_class,
                 hero_rating=game.white_rating if hero_is_white else game.black_rating,
-                opponent_username=game.black_username if hero_is_white else game.white_username,
-                opponent_rating=game.black_rating if hero_is_white else game.white_rating,
+                opponent_username=(
+                    game.black_username if hero_is_white else game.white_username
+                ),
+                opponent_rating=(
+                    game.black_rating if hero_is_white else game.white_rating
+                ),
                 game_played_at=game.played_at,
                 phase=classify_phase(
                     dp.ply,
@@ -313,6 +317,9 @@ def recent_drills(
                 ),
                 mastered=mastered,
                 archived=dp.archived,
+                has_one_winning_move=dp.has_one_winning_move,
+                winning_moves=dp.winning_moves,
+                losing_move=dp.losing_move,
                 history=[DrillHistoryRead.from_orm(h) for h in dp.history],
                 last_drilled_at=dp.last_drilled_at,
             )

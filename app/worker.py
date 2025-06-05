@@ -1,9 +1,19 @@
+#!/usr/bin/env python3
+"""
+scripts/drill_worker.py
+
+DrillQueue worker using a single “within‐tolerance” logic for both
+winning_moves and has_one_winning_move.
+
+Usage:
+    $ python scripts/drill_worker.py [--once]
+"""
+
 import argparse
 import io
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional
 
 import chess
 import chess.pgn
@@ -16,78 +26,71 @@ from app.models import DrillPosition, DrillQueue, Game
 
 # ─── Config ────────────────────────────────────────────────────────────────
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
-SWING_THRESHOLD = 100  # flag any single-move swing ≥ 1 pawn
-ONLY_MOVE_MARGIN = 100  # difference needed to flag a single winning move
-WINNING_MOVE_TOLERANCE = 20  # cp difference to include additional winning moves
+SWING_THRESHOLD = 100  # centipawns to flag a “drill” loss
+WINNING_MOVE_TOLERANCE = 20  # cp difference from best to count as “still winning”
+DEPTH = 18
 
 
-# ─── Evaluation Function ────────────────────────────────────────────────────
-def get_cp(info):
+# ─── Evaluation / CP helper ─────────────────────────────────────────────────
+def get_cp(info) -> float:
     """
-    Extract centipawn/mate score from Stockfish analysis, normalized to White's POV.
-    +ve = good for White, -ve = good for Black.
+    Extract centipawn or mate score from Stockfish analysis, normalized to White’s POV.
+    +ve = White‐favorable, −ve = Black‐favorable.
     """
     score_obj = info["score"]
     mate_score = score_obj.pov(chess.WHITE).mate()
     cp_score = score_obj.pov(chess.WHITE).score()
 
     if mate_score is not None:
-        raw_score = 10000 - abs(mate_score)
-        return raw_score if mate_score > 0 else -raw_score
+        raw = 10000 - abs(mate_score)
+        return raw if mate_score > 0 else -raw
     elif cp_score is not None:
         return cp_score
     else:
-        return 0.0  # Fallback in rare cases
+        return 0.0
 
 
-def has_single_winning_move(
+def unified_winning_logic(
     sf: SimpleEngine, board: chess.Board, hero_side: str
-) -> bool:
-    """Return True if only one move keeps a clear edge."""
-    analysis = sf.analyse(board, Limit(depth=18), multipv=2)
+) -> tuple[bool, list[str]]:
+    """
+    1) Run Stockfish with multipv=3 at depth=18.
+    2) Convert each line’s CP to “hero’s POV” (signed).
+    3) winning_moves = all lines where (best_hero_cp - this_line_hero_cp) <= WINNING_MOVE_TOLERANCE.
+    4) has_one_winning_move = (len(winning_moves) == 1).
+    """
+    analysis = sf.analyse(board, Limit(depth=DEPTH), multipv=3)
     if not isinstance(analysis, list):
         analysis = [analysis]
 
-    if len(analysis) < 2:
-        return True
+    hero_cp_list: list[float] = []
+    for info in analysis:
+        raw_cp = get_cp(info)  # White’s POV
+        signed_cp = raw_cp if hero_side == "w" else -raw_cp
+        hero_cp_list.append(signed_cp)
 
-    cp1 = get_cp(analysis[0])
-    cp2 = get_cp(analysis[1])
-    sign = 1 if hero_side == "w" else -1
-    return sign * (cp1 - cp2) >= ONLY_MOVE_MARGIN
+    if not hero_cp_list:
+        return False, []
 
-
-def top_winning_moves(
-    sf: SimpleEngine, board: chess.Board, hero_side: str
-) -> list[str]:
-    """Return up to 3 winning moves within WINNING_MOVE_TOLERANCE of the best line."""
-    analysis = sf.analyse(board, Limit(depth=18), multipv=3)
-    if not isinstance(analysis, list):
-        analysis = [analysis]
-
-    if not analysis:
-        return []
-
-    sign = 1 if hero_side == "w" else -1
-    best = get_cp(analysis[0])
-    moves: list[str] = []
-    for info in analysis[:3]:
-        cp = get_cp(info)
-        if sign * (best - cp) <= WINNING_MOVE_TOLERANCE:
-            move = info.get("pv")[0]
-            moves.append(board.san(move))
+    best_hero_cp = hero_cp_list[0]
+    moves_within: list[str] = []
+    for idx, info in enumerate(analysis):
+        diff = best_hero_cp - hero_cp_list[idx]
+        if diff <= WINNING_MOVE_TOLERANCE:
+            pv_move = info.get("pv")[0]
+            moves_within.append(board.san(pv_move))
         else:
             break
-    return moves
+
+    only_flag = len(moves_within) == 1
+    return only_flag, moves_within
 
 
-# ─── Drill Extraction Logic ─────────────────────────────────────────────────
+# ─── Drill‐finding logic ────────────────────────────────────────────────────
 def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
     """
-    Scan a game and return drill-worthy positions where the *hero* loses
-    ≥ SWING_THRESHOLD centipawns in a single move.
-
-    Returns: List of (fen_before_move, ply_index, eval_swing, initial_eval, move_san)
+    Scan game PGN and return positions (fen, ply, swing, initial_eval, move_san)
+    where hero_side loses ≥ SWING_THRESHOLD in one move.
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
     if not game:
@@ -101,18 +104,13 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
         mover_side = "w" if node.board().turn else "b"
         if mover_side == hero_side:
             fen_before = node.board().fen()
-            cp_before = get_cp(
-                sf.analyse(node.board(), Limit(depth=18))
-            )  # Eval before move
+            cp_before = get_cp(sf.analyse(node.board(), Limit(depth=18)))
 
             next_node = node.variation(0)
             move_san = node.board().san(next_node.move)
             node = next_node
-            cp_after = get_cp(
-                sf.analyse(node.board(), Limit(depth=18))
-            )  # Eval after move
 
-            # Compute swing from hero's perspective
+            cp_after = get_cp(sf.analyse(node.board(), Limit(depth=18)))
             sign = 1 if hero_side == "w" else -1
             delta = sign * (cp_before - cp_after)
 
@@ -126,7 +124,7 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
     return drills
 
 
-# ─── Process a Single DrillQueue Entry ──────────────────────────────────────
+# ─── Process a single DrillQueue entry ─────────────────────────────────────
 def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
     with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
@@ -137,19 +135,16 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
         if not game:
             return queue_id
 
-        # Determine hero side (white or black)
         hero_side = (
             "w" if dq.hero_username.lower() == game.white_username.lower() else "b"
         )
 
-        rows = []
-        # Extract drills from the game
+        rows: list[DrillPosition] = []
         for fen, ply, swing, initial_eval, played_move in shallow_drills_for_hero(
             sf, game.pgn, hero_side
         ):
             board = chess.Board(fen)
 
-            # Count material for phase classification
             white_minor_count = len(board.pieces(chess.BISHOP, chess.WHITE)) + len(
                 board.pieces(chess.KNIGHT, chess.WHITE)
             )
@@ -161,10 +156,8 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             white_queen = bool(board.pieces(chess.QUEEN, chess.WHITE))
             black_queen = bool(board.pieces(chess.QUEEN, chess.BLACK))
 
-            only_move = has_single_winning_move(sf, board, hero_side)
-            win_moves = top_winning_moves(sf, board, hero_side)
+            only_move, win_moves = unified_winning_logic(sf, board, hero_side)
 
-            # Build DrillPosition row with initial_eval
             rows.append(
                 DrillPosition(
                     game_id=game.id,
@@ -186,7 +179,6 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                 )
             )
 
-        # Batch insert with conflict skipping
         if rows:
             stmt = insert(DrillPosition).values(
                 [
@@ -214,10 +206,9 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             stmt = stmt.on_conflict_do_nothing(
                 index_elements=["game_id", "username", "ply"]
             )
-            session.execute(stmt)
+            session.exec(stmt)
             session.commit()
 
-        # Mark queue as processed
         dq.drills_processed = True
         dq.drilled_at = datetime.now(timezone.utc)
         session.add(dq)
@@ -226,7 +217,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
     return queue_id
 
 
-# ─── Fetch Next Unprocessed Queue Entries ──────────────────────────────────
+# ─── Fetch next batch of unprocessed DrillQueue IDs ────────────────────────
 def fetch_next_batch(limit: int) -> list[str]:
     with Session(db_engine) as session:
         stmt = (
@@ -237,7 +228,7 @@ def fetch_next_batch(limit: int) -> list[str]:
         return session.exec(stmt).all()
 
 
-# ─── Worker Entry Point ────────────────────────────────────────────────────
+# ─── Worker entry point ─────────────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Drill worker runner")
     parser.add_argument(
