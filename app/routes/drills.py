@@ -16,7 +16,7 @@ from math import ceil
 from typing import List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
-from sqlalchemy import nullsfirst, or_
+from sqlalchemy import nullsfirst, nullslast, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 
@@ -103,6 +103,10 @@ def list_drills(
         None,
         description="Include hidden drills: 'archived' and/or 'mastered'",
     ),
+    recent_first: bool = Query(
+        False,
+        description="Sort by most recently drilled first",
+    ),
     session: Session = Depends(get_session),
 ) -> List[DrillPositionResponse]:
 
@@ -132,6 +136,12 @@ def list_drills(
         if not include_archived:
             filters.append(DrillPosition.archived == False)
 
+        order_last = (
+            nullslast(DrillPosition.last_drilled_at.desc())
+            if recent_first
+            else nullsfirst(DrillPosition.last_drilled_at.asc())
+        )
+
         query = (
             select(DrillPosition)
             .join(DrillPosition.game)
@@ -141,7 +151,7 @@ def list_drills(
             )
             .where(*filters)
             .order_by(
-                nullsfirst(DrillPosition.last_drilled_at.asc()),
+                order_last,
                 Game.played_at.desc(),
                 DrillPosition.created_at.desc(),
             )
@@ -232,6 +242,80 @@ def list_drills(
         offset += batch_size  # next SQL window
 
     return results[:limit]  # safety slice (rarely needed)
+
+
+@router.get("/recent", response_model=List[DrillPositionResponse])
+def recent_drills(
+    username: str = Query(..., description="Hero username"),
+    limit: int = Query(20, ge=1, le=200, description="Max rows to return"),
+    include_archived: bool = Query(False, description="Include archived drills"),
+    session: Session = Depends(get_session),
+) -> List[DrillPositionResponse]:
+    """Return drills that have been played recently, newest first."""
+
+    stmt = (
+        select(DrillPosition)
+        .join(DrillPosition.game)
+        .options(selectinload(DrillPosition.game), selectinload(DrillPosition.history))
+        .where(DrillPosition.username == username)
+        .where(DrillPosition.last_drilled_at.is_not(None))
+        .order_by(DrillPosition.last_drilled_at.desc())
+        .limit(limit)
+    )
+    if not include_archived:
+        stmt = stmt.where(DrillPosition.archived == False)
+
+    rows = session.exec(stmt).all()
+
+    results: List[DrillPositionResponse] = []
+    for dp in rows:
+        game = dp.game
+        hero_is_white = dp.username == game.white_username
+
+        history_sorted = sorted(dp.history, key=lambda h: h.timestamp, reverse=True)
+        recent = history_sorted[:5]
+        mastered = len(recent) == 5 and all(h.result == "pass" for h in recent)
+
+        hero_raw = game.white_result if hero_is_white else game.black_result
+        opp_raw = game.black_result if hero_is_white else game.white_result
+        is_draw = game.white_result == game.black_result
+        hero_res = "win" if hero_raw == "win" else "draw" if is_draw else "loss"
+
+        results.append(
+            DrillPositionResponse(
+                id=dp.id,
+                game_id=dp.game_id,
+                username=dp.username,
+                fen=dp.fen,
+                ply=dp.ply,
+                initial_eval=dp.initial_eval,
+                eval_swing=dp.eval_swing,
+                created_at=dp.created_at,
+                hero_result=hero_res,
+                result_reason=opp_raw if hero_res == "win" else hero_raw,
+                time_control=game.time_control,
+                time_class=game.time_class,
+                hero_rating=game.white_rating if hero_is_white else game.black_rating,
+                opponent_username=game.black_username if hero_is_white else game.white_username,
+                opponent_rating=game.black_rating if hero_is_white else game.white_rating,
+                game_played_at=game.played_at,
+                phase=classify_phase(
+                    dp.ply,
+                    dp.white_queen,
+                    dp.black_queen,
+                    dp.white_rook_count,
+                    dp.black_rook_count,
+                    dp.white_minor_count,
+                    dp.black_minor_count,
+                ),
+                mastered=mastered,
+                archived=dp.archived,
+                history=[DrillHistoryRead.from_orm(h) for h in dp.history],
+                last_drilled_at=dp.last_drilled_at,
+            )
+        )
+
+    return results
 
 
 @router.get("/{id}", response_model=DrillPositionResponse)
