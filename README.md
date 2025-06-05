@@ -1,19 +1,44 @@
 # blunderfixer-api
 
-## Archive a drill
+This FastAPI service powers the chess training features of **BlunderFixer**. A running instance exposes interactive docs at `/docs` and `/redoc`.
 
-To hide a drill from your feed, send a `PATCH` request to `/drills/{id}` with
-`{"archived": true}`. The endpoint returns the updated drill information.
+## Endpoints overview
 
-## View recently drilled
+### Health
+- `GET /health` – simple status check.
+- `GET /` – root heartbeat.
 
-Pass `recent_first=true` to `/drills` to sort results by most recently
-drilled positions first. By default, drills are ordered oldest first so
-that never-practiced items appear at the top of the feed.
+### Analysis
+- `POST /analyse-fen` – evaluate a FEN position with Stockfish. Accepts `{ "fen": "...", "top_n": 1 }`.
+- `POST /analyse-pgn` – depth‑limited evaluation for each move in a PGN.
+- `POST /analyse-pgn-full` – return evaluation plus top engine moves for every ply. Query params: `top_n`, `depth`.
+- `POST /extract-features` – extract positional features from a FEN for LLM coaching.
+- `POST /phase` – tag each move in a PGN with its game phase.
+- `POST /coach` – conversational coach using Stockfish and OpenAI. Requires FEN, legal moves and chat history.
+- `GET  /public/players/{username}/recent-games` – fetch and normalise recent games from Chess.com.
 
-### Recently played drills
+### Drill management
+- `GET  /drills` – list drill positions. Supports filtering by username, eval swing, phase, opponent and more. `recent_first=true` orders by last played.
+- `GET  /drills/recent` – drills you've played recently.
+- `GET  /drills/{id}` – retrieve a drill with game info and history.
+- `PATCH /drills/{id}` – update a drill (e.g. `{ "archived": true }` or mark as played).
+- `GET  /drills/{id}/history` – list history entries for a drill.
+- `POST /drills/{id}/history` – record a pass/fail result for a drill.
 
-To fetch only drills you've played recently, call `GET /drills/recent` with
-`username` and an optional `limit` (defaults to 20). Results are ordered by
-`last_drilled_at` descending and exclude archived drills unless
-`include_archived=true` is provided.
+### Sync jobs
+- `POST /sync` – create a job to sync a single user's games.
+- `GET  /sync/{job_id}` – check job status and progress counters.
+- `POST /sync_all` – enqueue sync jobs for all active users.
+
+### Player statistics
+- `GET /player_stats/{username}` – aggregated stats including win rates, openings and rating progression.
+
+## Contributing
+
+Run the API locally with:
+
+```bash
+make dev
+```
+
+No automated tests are included yet, so verify changes manually and keep this README current.
