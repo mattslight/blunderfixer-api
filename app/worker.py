@@ -3,6 +3,7 @@ import io
 import os
 import time
 from datetime import datetime, timezone
+from typing import Optional
 
 import chess
 import chess.pgn
@@ -16,6 +17,8 @@ from app.models import DrillPosition, DrillQueue, Game
 # ─── Config ────────────────────────────────────────────────────────────────
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
 SWING_THRESHOLD = 100  # flag any single-move swing ≥ 1 pawn
+ONLY_MOVE_MARGIN = 100  # difference needed to flag a single winning move
+WINNING_MOVE_TOLERANCE = 20  # cp difference to include additional winning moves
 
 
 # ─── Evaluation Function ────────────────────────────────────────────────────
@@ -37,19 +40,60 @@ def get_cp(info):
         return 0.0  # Fallback in rare cases
 
 
+def has_single_winning_move(
+    sf: SimpleEngine, board: chess.Board, hero_side: str
+) -> bool:
+    """Return True if only one move keeps a clear edge."""
+    analysis = sf.analyse(board, Limit(depth=18), multipv=2)
+    if not isinstance(analysis, list):
+        analysis = [analysis]
+
+    if len(analysis) < 2:
+        return True
+
+    cp1 = get_cp(analysis[0])
+    cp2 = get_cp(analysis[1])
+    sign = 1 if hero_side == "w" else -1
+    return sign * (cp1 - cp2) >= ONLY_MOVE_MARGIN
+
+
+def top_winning_moves(
+    sf: SimpleEngine, board: chess.Board, hero_side: str
+) -> list[str]:
+    """Return up to 3 winning moves within WINNING_MOVE_TOLERANCE of the best line."""
+    analysis = sf.analyse(board, Limit(depth=18), multipv=3)
+    if not isinstance(analysis, list):
+        analysis = [analysis]
+
+    if not analysis:
+        return []
+
+    sign = 1 if hero_side == "w" else -1
+    best = get_cp(analysis[0])
+    moves: list[str] = []
+    for info in analysis[:3]:
+        cp = get_cp(info)
+        if sign * (best - cp) <= WINNING_MOVE_TOLERANCE:
+            move = info.get("pv")[0]
+            moves.append(board.san(move))
+        else:
+            break
+    return moves
+
+
 # ─── Drill Extraction Logic ─────────────────────────────────────────────────
 def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
     """
     Scan a game and return drill-worthy positions where the *hero* loses
     ≥ SWING_THRESHOLD centipawns in a single move.
 
-    Returns: List of (fen_before_move, ply_index, eval_swing, initial_eval)
+    Returns: List of (fen_before_move, ply_index, eval_swing, initial_eval, move_san)
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
     if not game:
         return []
 
-    drills: list[tuple[str, int, float, float]] = []
+    drills: list[tuple[str, int, float, float, str]] = []
     ply_idx = 0
     node = game
 
@@ -61,7 +105,9 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
                 sf.analyse(node.board(), Limit(depth=18))
             )  # Eval before move
 
-            node = node.variation(0)
+            next_node = node.variation(0)
+            move_san = node.board().san(next_node.move)
+            node = next_node
             cp_after = get_cp(
                 sf.analyse(node.board(), Limit(depth=18))
             )  # Eval after move
@@ -71,7 +117,7 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
             delta = sign * (cp_before - cp_after)
 
             if delta >= SWING_THRESHOLD:
-                drills.append((fen_before, ply_idx, delta, cp_before))
+                drills.append((fen_before, ply_idx, delta, cp_before, move_san))
         else:
             node = node.variation(0)
 
@@ -98,7 +144,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
 
         rows = []
         # Extract drills from the game
-        for fen, ply, swing, initial_eval in shallow_drills_for_hero(
+        for fen, ply, swing, initial_eval, played_move in shallow_drills_for_hero(
             sf, game.pgn, hero_side
         ):
             board = chess.Board(fen)
@@ -115,6 +161,9 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             white_queen = bool(board.pieces(chess.QUEEN, chess.WHITE))
             black_queen = bool(board.pieces(chess.QUEEN, chess.BLACK))
 
+            only_move = has_single_winning_move(sf, board, hero_side)
+            win_moves = top_winning_moves(sf, board, hero_side)
+
             # Build DrillPosition row with initial_eval
             rows.append(
                 DrillPosition(
@@ -124,6 +173,9 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                     ply=ply,
                     initial_eval=initial_eval,
                     eval_swing=swing,
+                    has_one_winning_move=only_move,
+                    winning_moves=win_moves,
+                    losing_move=played_move,
                     white_minor_count=white_minor_count,
                     black_minor_count=black_minor_count,
                     white_rook_count=white_rook_count,
@@ -145,6 +197,9 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                         "ply": row.ply,
                         "initial_eval": row.initial_eval,
                         "eval_swing": row.eval_swing,
+                        "has_one_winning_move": row.has_one_winning_move,
+                        "winning_moves": row.winning_moves,
+                        "losing_move": row.losing_move,
                         "white_minor_count": row.white_minor_count,
                         "black_minor_count": row.black_minor_count,
                         "white_rook_count": row.white_rook_count,

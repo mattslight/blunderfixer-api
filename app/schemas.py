@@ -72,6 +72,9 @@ class DrillPositionResponse(BaseModel):
     game_played_at: datetime
     phase: str
     archived: bool
+    has_one_winning_move: bool = False
+    winning_moves: Optional[list[str]] = None
+    losing_move: Optional[str] = None
     mastered: bool
     history: list[DrillHistoryRead] = []
     last_drilled_at: Optional[datetime] = None

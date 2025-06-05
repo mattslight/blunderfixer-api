@@ -135,6 +135,19 @@ class DrillPosition(SQLModel, table=True):
         default=False, sa_column=Column(Boolean, nullable=False, server_default="false")
     )
 
+    has_one_winning_move: bool = Field(
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
+    )
+
+    winning_moves: Optional[list[str]] = Field(
+        default=None, sa_column=Column(JSON, nullable=True)
+    )
+
+    losing_move: Optional[str] = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )
+
     history: List["DrillHistory"] = Relationship(back_populates="drill_position")
 
     last_drilled_at: Optional[datetime] = Field(

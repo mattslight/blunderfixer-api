@@ -222,6 +222,9 @@ def list_drills(
                     phase=phase,
                     mastered=mastered,
                     archived=dp.archived,
+                    has_one_winning_move=dp.has_one_winning_move,
+                    winning_moves=dp.winning_moves,
+                    losing_move=dp.losing_move,
                     history=[DrillHistoryRead.from_orm(h) for h in dp.history],
                     last_drilled_at=dp.last_drilled_at,
                 )
@@ -293,6 +296,9 @@ def get_drill(
         phase=phase,
         mastered=mastered,
         archived=drill.archived,
+        has_one_winning_move=drill.has_one_winning_move,
+        winning_moves=drill.winning_moves,
+        losing_move=drill.losing_move,
         history=[DrillHistoryRead.from_orm(h) for h in drill.history],
         last_drilled_at=drill.last_drilled_at,
     )
