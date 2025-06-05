@@ -132,20 +132,24 @@ class DrillPosition(SQLModel, table=True):
     black_queen: bool = Field(default=False, sa_column=Column(Boolean))
 
     archived: bool = Field(
-        default=False, sa_column=Column(Boolean, nullable=False, server_default="false")
+        default=False,
+        sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
 
+    # Make these non‐nullable, with a sane default:
     has_one_winning_move: bool = Field(
         default=False,
         sa_column=Column(Boolean, nullable=False, server_default="false"),
     )
 
-    winning_moves: Optional[list[str]] = Field(
-        default=None, sa_column=Column(JSON, nullable=True)
+    winning_moves: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default="[]"),
     )
 
-    losing_move: Optional[str] = Field(
-        default=None, sa_column=Column(String, nullable=True)
+    losing_move: str = Field(
+        default="",
+        sa_column=Column(String, nullable=False, server_default=""),
     )
 
     history: List["DrillHistory"] = Relationship(back_populates="drill_position")
