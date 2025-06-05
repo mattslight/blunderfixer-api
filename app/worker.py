@@ -27,7 +27,7 @@ from app.models import DrillPosition, DrillQueue, Game
 # ─── Config ────────────────────────────────────────────────────────────────
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
 SWING_THRESHOLD = 100  # centipawns to flag a “drill” loss
-WINNING_MOVE_TOLERANCE = 20  # cp difference from best to count as “still winning”
+WINNING_MOVE_TOLERANCE = 50  # cp difference from best to count as “still winning”
 DEPTH = 18
 
 
