@@ -8,13 +8,13 @@ from app.routes import (
     analyse_pgn,
     analyse_pgn_full,
     coach,
-    drills,
     fen_feature_extraction,
     phase,
     player_recent_games,
     sync,
     sync_all,
 )
+from app.routes.drills import router as drills_router
 from app.routes.player_stats.index import router as player_stats_router
 
 app = FastAPI()
@@ -58,7 +58,7 @@ app.include_router(phase.router)
 app.include_router(player_recent_games.router)
 app.include_router(sync.router)
 app.include_router(player_stats_router)
-app.include_router(drills.router)
+app.include_router(drills_router)
 app.include_router(sync_all.router)
 
 
