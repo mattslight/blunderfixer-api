@@ -59,6 +59,21 @@ def recent_drills(
     )
 
 
+@router.get("/mastered", response_model=List[DrillPositionResponse])
+def mastered_drills(
+    username: str = Query(..., description="Hero username"),
+    limit: int = Query(20, ge=1, le=200, description="Max rows to return"),
+    include_archived: bool = Query(False, description="Include archived drills"),
+    session: Session = Depends(get_session),
+) -> List[DrillPositionResponse]:
+    service = DrillService(session)
+    return service.mastered_drills(
+        username=username,
+        limit=limit,
+        include_archived=include_archived,
+    )
+
+
 @router.get("/{id}", response_model=DrillPositionResponse)
 def get_drill(
     id: int,
