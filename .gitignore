@@ -24,3 +24,5 @@ data/*
 blunderfixer.db
 *.db
 
+#sync and worker logs
+logs/
