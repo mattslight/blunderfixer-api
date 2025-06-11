@@ -16,6 +16,7 @@ from app.schemas import (
     DrillPositionResponse,
     DrillUpdateRequest,
 )
+from app.routes.fen_feature_extraction import extract_features_from_fen
 
 
 class DrillNotFound(Exception):
@@ -423,6 +424,8 @@ class DrillService:
         recent = history_sorted[:5]
         mastered = len(recent) == 5 and all(h.result == "pass" for h in recent)
 
+        features = extract_features_from_fen(drill.fen)
+
         return DrillPositionResponse(
             id=drill.id,
             game_id=drill.game_id,
@@ -448,6 +451,7 @@ class DrillService:
             winning_moves=drill.winning_moves,
             winning_lines=drill.winning_lines,
             losing_move=drill.losing_move,
+            features=features,
             history=[DrillHistoryRead.from_orm(h) for h in drill.history],
             last_drilled_at=drill.last_drilled_at,
         )

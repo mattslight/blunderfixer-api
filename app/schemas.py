@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -77,6 +77,7 @@ class DrillPositionResponse(BaseModel):
     winning_moves: Optional[list[str]] = None
     winning_lines: Optional[list[list[str]]] = None
     losing_move: Optional[str] = None
+    features: Optional[Dict[str, Any]] = None
     mastered: bool
     history: list[DrillHistoryRead] = []
     last_drilled_at: Optional[datetime] = None
