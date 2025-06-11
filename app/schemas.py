@@ -71,6 +71,7 @@ class DrillPositionResponse(BaseModel):
     opponent_rating: int
     game_played_at: datetime
     phase: str
+    pgn: Optional[str] = None
     archived: bool
     has_one_winning_move: bool = False
     winning_moves: Optional[list[str]] = None

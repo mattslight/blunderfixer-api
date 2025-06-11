@@ -437,6 +437,7 @@ class DrillService:
             opponent_username=game.black_username if hero_is_white else game.white_username,
             opponent_rating=game.black_rating if hero_is_white else game.white_rating,
             game_played_at=game.played_at,
+            pgn=game.pgn,
             phase=phase,
             mastered=mastered,
             archived=drill.archived,
