@@ -20,11 +20,8 @@ PIECE_NAME = {
 }
 
 
-@router.post(
-    "/extract-features", summary="Extract position features from a FEN for LLM coaching"
-)
-def extract_features(req: FeatureExtractionRequest):
-    board = chess.Board(req.fen)
+def extract_features_from_board(board: chess.Board) -> dict:
+    """Return structured positional features for a given board."""
 
     # Phase-1 & Phase-2 core features
     material = get_material_balance(board)
@@ -83,6 +80,19 @@ def extract_features(req: FeatureExtractionRequest):
     }
 
     return features
+
+
+def extract_features_from_fen(fen: str) -> dict:
+    """Helper to compute features from a FEN string."""
+    return extract_features_from_board(chess.Board(fen))
+
+
+@router.post(
+    "/extract-features", summary="Extract position features from a FEN for LLM coaching"
+)
+def extract_features(req: FeatureExtractionRequest):
+    board = chess.Board(req.fen)
+    return extract_features_from_board(board)
 
 
 def get_material_balance(board):
