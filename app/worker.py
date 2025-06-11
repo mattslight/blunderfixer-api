@@ -52,7 +52,7 @@ def get_cp(info) -> float:
 
 def unified_winning_logic(
     sf: SimpleEngine, board: chess.Board, hero_side: str
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[str], list[list[str]]]:
     """
     1) Run Stockfish with multipv=3 at depth=18.
     2) Convert each line’s CP to “hero’s POV” (signed).
@@ -64,26 +64,35 @@ def unified_winning_logic(
         analysis = [analysis]
 
     hero_cp_list: list[float] = []
+    all_lines: list[list[str]] = []
     for info in analysis:
         raw_cp = get_cp(info)  # White’s POV
         signed_cp = raw_cp if hero_side == "w" else -raw_cp
         hero_cp_list.append(signed_cp)
 
+        pv_line: list[str] = []
+        b_copy = board.copy()
+        for mv in info.get("pv", []):
+            pv_line.append(b_copy.san(mv))
+            b_copy.push(mv)
+        all_lines.append(pv_line)
+
     if not hero_cp_list:
-        return False, []
+        return False, [], []
 
     best_hero_cp = hero_cp_list[0]
     moves_within: list[str] = []
+    lines_within: list[list[str]] = []
     for idx, info in enumerate(analysis):
         diff = best_hero_cp - hero_cp_list[idx]
         if diff <= WINNING_MOVE_TOLERANCE:
-            pv_move = info.get("pv")[0]
-            moves_within.append(board.san(pv_move))
+            moves_within.append(all_lines[idx][0] if all_lines[idx] else "")
+            lines_within.append(all_lines[idx])
         else:
             break
 
     only_flag = len(moves_within) == 1
-    return only_flag, moves_within
+    return only_flag, moves_within, lines_within
 
 
 # ─── Drill‐finding logic ────────────────────────────────────────────────────
@@ -156,7 +165,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             white_queen = bool(board.pieces(chess.QUEEN, chess.WHITE))
             black_queen = bool(board.pieces(chess.QUEEN, chess.BLACK))
 
-            only_move, win_moves = unified_winning_logic(sf, board, hero_side)
+            only_move, win_moves, win_lines = unified_winning_logic(sf, board, hero_side)
 
             rows.append(
                 DrillPosition(
@@ -168,6 +177,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                     eval_swing=swing,
                     has_one_winning_move=only_move,
                     winning_moves=win_moves,
+                    winning_lines=win_lines,
                     losing_move=played_move,
                     white_minor_count=white_minor_count,
                     black_minor_count=black_minor_count,
@@ -191,6 +201,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                         "eval_swing": row.eval_swing,
                         "has_one_winning_move": row.has_one_winning_move,
                         "winning_moves": row.winning_moves,
+                        "winning_lines": row.winning_lines,
                         "losing_move": row.losing_move,
                         "white_minor_count": row.white_minor_count,
                         "black_minor_count": row.black_minor_count,

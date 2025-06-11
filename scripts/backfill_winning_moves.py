@@ -61,7 +61,7 @@ def get_cp(info) -> float:
 
 def unified_winning_logic(
     sf: SimpleEngine, board: chess.Board, hero_side: str
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[str], list[list[str]]]:
     """
     1) Query Stockfish for its top 3 lines (multipv=3).
     2) Convert each line’s CP to “hero’s POV” (signed).
@@ -72,29 +72,37 @@ def unified_winning_logic(
     if not isinstance(analysis, list):
         analysis = [analysis]
 
-    # Build a list of “hero‐signed CP” values:
     hero_cp_list: list[float] = []
+    all_lines: list[list[str]] = []
     for info in analysis:
         raw_cp = get_cp(info)  # White’s POV
         signed_cp = raw_cp if hero_side == "w" else -raw_cp
         hero_cp_list.append(signed_cp)
 
+        pv_line: list[str] = []
+        b_copy = board.copy()
+        for mv in info.get("pv", []):
+            pv_line.append(b_copy.san(mv))
+            b_copy.push(mv)
+        all_lines.append(pv_line)
+
     if not hero_cp_list:
-        return False, []
+        return False, [], []
 
     best_hero_cp = hero_cp_list[0]
 
     moves_within_tolerance: list[str] = []
+    lines_within: list[list[str]] = []
     for idx, info in enumerate(analysis):
         diff = best_hero_cp - hero_cp_list[idx]
         if diff <= WINNING_MOVE_TOLERANCE:
-            pv_move = info.get("pv")[0]
-            moves_within_tolerance.append(board.san(pv_move))
+            moves_within_tolerance.append(all_lines[idx][0] if all_lines[idx] else "")
+            lines_within.append(all_lines[idx])
         else:
             break
 
     only_flag = len(moves_within_tolerance) == 1
-    return only_flag, moves_within_tolerance
+    return only_flag, moves_within_tolerance, lines_within
 
 
 # ─── Main backfill routine ──────────────────────────────────────────────────
@@ -105,6 +113,7 @@ def backfill_winning_fields():
             (DrillPosition.losing_move.is_(None))
             | (DrillPosition.has_one_winning_move.is_(None))
             | (DrillPosition.winning_moves.is_(None))
+            | (DrillPosition.winning_lines.is_(None))
         )
         positions = session.exec(stmt).scalars().all()
 
@@ -151,7 +160,7 @@ def backfill_winning_fields():
                     losing_move_san = board.san(next_move)
 
                 # 6) Compute both fields with a single call:
-                only_flag, win_list = unified_winning_logic(sf, board, hero_side)
+                only_flag, win_list, line_list = unified_winning_logic(sf, board, hero_side)
 
                 # 7) UPDATE the DrillPosition in one SQL statement:
                 session.execute(
@@ -160,6 +169,7 @@ def backfill_winning_fields():
                     .values(
                         has_one_winning_move=only_flag,
                         winning_moves=win_list or None,
+                        winning_lines=line_list or None,
                         losing_move=losing_move_san,
                     )
                 )
@@ -168,6 +178,7 @@ def backfill_winning_fields():
                     f"has_one_winning_move={only_flag}, "
                     f"losing_move={losing_move_san!r}, "
                     f"winning_moves={win_list}"
+                    f", winning_lines={line_list}"
                 )
 
             session.commit()
