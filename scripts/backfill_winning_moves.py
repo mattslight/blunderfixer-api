@@ -3,7 +3,7 @@
 scripts/backfill_winning_moves.py
 
 Scan all existing DrillPosition rows where any of the new fields
-(`losing_move`, `has_one_winning_move`, `winning_moves`) are NULL,
+(`losing_move`, `has_one_winning_move`, `winning_moves`, `winning_lines`) are NULL,
 then recompute & write them using a single, consistent “within‐tolerance”
 logic instead of two separate thresholds.
 
