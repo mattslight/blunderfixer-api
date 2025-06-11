@@ -147,6 +147,11 @@ class DrillPosition(SQLModel, table=True):
         sa_column=Column(JSON, nullable=False, server_default="[]"),
     )
 
+    winning_lines: list[list[str]] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default="[]"),
+    )
+
     losing_move: str = Field(
         default="",
         sa_column=Column(String, nullable=False, server_default=""),

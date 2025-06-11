@@ -75,6 +75,7 @@ class DrillPositionResponse(BaseModel):
     archived: bool
     has_one_winning_move: bool = False
     winning_moves: Optional[list[str]] = None
+    winning_lines: Optional[list[list[str]]] = None
     losing_move: Optional[str] = None
     features: Optional[Dict[str, Any]] = None
     mastered: bool
