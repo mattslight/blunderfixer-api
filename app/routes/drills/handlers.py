@@ -104,7 +104,7 @@ def read_drill_history(
 def create_drill_history(
     *,
     drill_id: int = Path(..., description="ID of the drill position"),
-    payload: DrillHistoryCreate = Body(..., description="Result payload: 'pass' | 'fail', optional timestamp"),
+    payload: DrillHistoryCreate = Body(..., description="Result payload: 'pass' | 'fail', optional timestamp and moves"),
     session: Session = Depends(get_session),
 ):
     service = DrillService(session)

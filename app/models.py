@@ -172,6 +172,10 @@ class DrillHistory(SQLModel, table=True):
     drill_position_id: int = Field(foreign_key="drillposition.id", nullable=False)
     result: str = Field(sa_column=Column(String, nullable=False))  # 'pass' | 'fail'
     reason: str = Field(sa_column=Column(String, nullable=True))
+    moves: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default="[]"),
+    )
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),

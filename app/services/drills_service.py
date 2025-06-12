@@ -486,6 +486,7 @@ class DrillService:
             drill_position_id=drill_id,
             result=result_lower,
             reason=payload.reason,
+            moves=payload.moves or [],
             timestamp=ts,
         )
 

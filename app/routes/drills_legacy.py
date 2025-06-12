@@ -423,7 +423,7 @@ def create_drill_history(
     *,
     drill_id: int = Path(..., description="ID of the drill position"),
     payload: DrillHistoryCreate = Body(
-        ..., description="Result payload: 'pass' | 'fail', optional timestamp"
+        ..., description="Result payload: 'pass' | 'fail', optional timestamp and moves"
     ),
     session: Session = Depends(get_session),
 ):
@@ -431,6 +431,7 @@ def create_drill_history(
     Record a new history entry for drill_position_id == drill_id.
     - `payload.result` must be 'pass' or 'fail'.
     - `payload.timestamp` defaults to now if omitted.
+    - `payload.moves` may include the SAN moves played when failing.
     """
     # (Optional) Verify that the DrillPosition exists:
     from app.models import DrillPosition

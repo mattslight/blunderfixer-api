@@ -40,6 +40,7 @@ class SyncStatusResponse(BaseModel):
 class DrillHistoryCreate(BaseModel):
     result: str  # 'pass' | 'fail'
     reason: Optional[str] = None
+    moves: Optional[list[str]] = None
     timestamp: Optional[datetime] = None  # optional, defaults to now if omitted
 
 
@@ -48,6 +49,7 @@ class DrillHistoryRead(BaseModel):
     drill_position_id: int
     result: str
     reason: Optional[str]
+    moves: list[str]
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)
