@@ -8,6 +8,11 @@ from typing import List, Optional
 from sqlalchemy import nullsfirst, nullslast, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
+import os
+import chess
+import chess.engine
+
+STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "stockfish")
 
 from app.models import DrillHistory, DrillPosition, Game
 from app.schemas import (
@@ -482,11 +487,30 @@ class DrillService:
             raise DrillNotFound()
 
         ts = payload.timestamp or datetime.now(timezone.utc)
+        final_eval = None
+        if payload.moves:
+            try:
+                board = chess.Board(dp.fen)
+                for mv in payload.moves:
+                    try:
+                        board.push_san(mv)
+                    except Exception:
+                        board.push(chess.Move.from_uci(mv))
+                with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as eng:
+                    info = eng.analyse(board, chess.engine.Limit(depth=12))
+                score = info["score"].white()
+                if score.is_mate():
+                    final_eval = 10000.0 if score.mate() > 0 else -10000.0
+                else:
+                    final_eval = float(score.score())
+            except Exception:
+                final_eval = None
         new_hist = DrillHistory(
             drill_position_id=drill_id,
             result=result_lower,
             reason=payload.reason,
             moves=payload.moves or [],
+            final_eval=final_eval,
             timestamp=ts,
         )
 

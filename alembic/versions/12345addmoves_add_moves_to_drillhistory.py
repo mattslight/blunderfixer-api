@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column(
         'drillhistory',
-        sa.Column('moves', postgresql.JSON(), nullable=True),
+        sa.Column('moves', postgresql.JSON(), nullable=False, server_default='[]'),
     )
 
 

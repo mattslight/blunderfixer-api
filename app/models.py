@@ -176,6 +176,10 @@ class DrillHistory(SQLModel, table=True):
         default_factory=list,
         sa_column=Column(JSON, nullable=False, server_default="[]"),
     )
+    final_eval: Optional[float] = Field(
+        default=None,
+        sa_column=Column(Float, nullable=True),
+    )
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         sa_column=Column(DateTime(timezone=True), nullable=False),

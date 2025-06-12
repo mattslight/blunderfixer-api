@@ -50,6 +50,7 @@ class DrillHistoryRead(BaseModel):
     result: str
     reason: Optional[str]
     moves: list[str]
+    final_eval: Optional[float] = None
     timestamp: datetime
 
     model_config = ConfigDict(from_attributes=True)

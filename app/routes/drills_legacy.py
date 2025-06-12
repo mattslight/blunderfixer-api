@@ -423,7 +423,7 @@ def create_drill_history(
     *,
     drill_id: int = Path(..., description="ID of the drill position"),
     payload: DrillHistoryCreate = Body(
-        ..., description="Result payload: 'pass' | 'fail', optional timestamp and moves"
+        ..., description="Result payload: 'pass' | 'fail', optional timestamp and moves; final eval computed automatically"
     ),
     session: Session = Depends(get_session),
 ):
@@ -432,6 +432,7 @@ def create_drill_history(
     - `payload.result` must be 'pass' or 'fail'.
     - `payload.timestamp` defaults to now if omitted.
     - `payload.moves` may include the SAN moves played when failing.
+    - `final_eval` is calculated after applying moves with Stockfish.
     """
     # (Optional) Verify that the DrillPosition exists:
     from app.models import DrillPosition

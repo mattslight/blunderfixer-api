@@ -24,7 +24,7 @@ This FastAPI service powers the chess training features of **BlunderFixer**. A r
 - `GET  /drills/{id}` – retrieve a drill with game info, history, PGN and engine winning lines.
 - `PATCH /drills/{id}` – update a drill (e.g. `{ "archived": true }` or mark as played).
 - `GET  /drills/{id}/history` – list history entries for a drill.
-- `POST /drills/{id}/history` – record a pass/fail result (and any losing moves) for a drill.
+- `POST /drills/{id}/history` – record a pass/fail result (any losing moves and final eval) for a drill.
 
 ### Sync jobs
 - `POST /sync` – create a job to sync a single user's games.
