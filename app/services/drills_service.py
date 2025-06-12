@@ -498,11 +498,14 @@ class DrillService:
                         board.push(chess.Move.from_uci(mv))
                 with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as eng:
                     info = eng.analyse(board, chess.engine.Limit(depth=12))
-                score = info["score"].white()
-                if score.is_mate():
-                    final_eval = 10000.0 if score.mate() > 0 else -10000.0
-                else:
-                    final_eval = float(score.score())
+                score_obj = info["score"]
+                mate_score = score_obj.pov(chess.WHITE).mate()
+                cp_score = score_obj.pov(chess.WHITE).score()
+                if mate_score is not None:
+                    raw = 10000 - abs(mate_score)
+                    final_eval = raw if mate_score > 0 else -raw
+                elif cp_score is not None:
+                    final_eval = float(cp_score)
             except Exception:
                 final_eval = None
         new_hist = DrillHistory(

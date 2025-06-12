@@ -1,4 +1,4 @@
-"""Add moves field to DrillHistory
+"""Add moves and final_eval fields to DrillHistory
 
 Revision ID: 12345addmoves
 Revises: ee8f8ae495cd
@@ -19,10 +19,15 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.add_column(
-        'drillhistory',
-        sa.Column('moves', postgresql.JSON(), nullable=False, server_default='[]'),
+        "drillhistory",
+        sa.Column("moves", postgresql.JSON(), nullable=False, server_default="[]"),
+    )
+    op.add_column(
+        "drillhistory",
+        sa.Column("final_eval", sa.Float(), nullable=True),
     )
 
 
 def downgrade() -> None:
-    op.drop_column('drillhistory', 'moves')
+    op.drop_column("drillhistory", "final_eval")
+    op.drop_column("drillhistory", "moves")
