@@ -1,27 +1,27 @@
 from __future__ import annotations
 
+import os
 import sys
 from datetime import datetime, timezone
 from math import ceil
 from typing import List, Optional
 
+import chess
+import chess.engine
 from sqlalchemy import nullsfirst, nullslast, or_
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
-import os
-import chess
-import chess.engine
 
 STOCKFISH_PATH = os.getenv("STOCKFISH_PATH", "stockfish")
 
 from app.models import DrillHistory, DrillPosition, Game
+from app.routes.fen_feature_extraction import extract_features_from_fen
 from app.schemas import (
     DrillHistoryCreate,
     DrillHistoryRead,
     DrillPositionResponse,
     DrillUpdateRequest,
 )
-from app.routes.fen_feature_extraction import extract_features_from_fen
 
 
 class DrillNotFound(Exception):
@@ -92,7 +92,9 @@ class DrillService:
         recent_first: bool = False,
     ) -> List[DrillPositionResponse]:
         min_eval_cp = int(min_eval_swing)
-        max_eval_cp = sys.maxsize if max_eval_swing == float("inf") else int(max_eval_swing)
+        max_eval_cp = (
+            sys.maxsize if max_eval_swing == float("inf") else int(max_eval_swing)
+        )
 
         phase_whitelist = {p.lower() for p in phases or []}
         result_whitelist = {r.lower() for r in hero_results or []}
@@ -154,7 +156,9 @@ class DrillService:
                 game = dp.game
                 hero_is_white = dp.username == game.white_username
 
-                history_sorted = sorted(dp.history, key=lambda h: h.timestamp, reverse=True)
+                history_sorted = sorted(
+                    dp.history, key=lambda h: h.timestamp, reverse=True
+                )
                 recent = history_sorted[:5]
                 mastered = len(recent) == 5 and all(h.result == "pass" for h in recent)
 
@@ -196,9 +200,13 @@ class DrillService:
                         result_reason=opp_raw if hero_res == "win" else hero_raw,
                         time_control=game.time_control,
                         time_class=game.time_class,
-                        hero_rating=game.white_rating if hero_is_white else game.black_rating,
+                        hero_rating=(
+                            game.white_rating if hero_is_white else game.black_rating
+                        ),
                         opponent_username=(
-                            game.black_username if hero_is_white else game.white_username
+                            game.black_username
+                            if hero_is_white
+                            else game.white_username
                         ),
                         opponent_rating=(
                             game.black_rating if hero_is_white else game.white_rating
@@ -235,7 +243,9 @@ class DrillService:
         stmt = (
             select(DrillPosition)
             .join(DrillPosition.game)
-            .options(selectinload(DrillPosition.game), selectinload(DrillPosition.history))
+            .options(
+                selectinload(DrillPosition.game), selectinload(DrillPosition.history)
+            )
             .where(DrillPosition.username == username)
             .where(DrillPosition.last_drilled_at.is_not(None))
             .order_by(DrillPosition.last_drilled_at.desc())
@@ -274,7 +284,9 @@ class DrillService:
                     result_reason=opp_raw if hero_res == "win" else hero_raw,
                     time_control=game.time_control,
                     time_class=game.time_class,
-                    hero_rating=game.white_rating if hero_is_white else game.black_rating,
+                    hero_rating=(
+                        game.white_rating if hero_is_white else game.black_rating
+                    ),
                     opponent_username=(
                         game.black_username if hero_is_white else game.white_username
                     ),
@@ -319,7 +331,9 @@ class DrillService:
         stmt = (
             select(DrillPosition)
             .join(DrillPosition.game)
-            .options(selectinload(DrillPosition.game), selectinload(DrillPosition.history))
+            .options(
+                selectinload(DrillPosition.game), selectinload(DrillPosition.history)
+            )
             .where(DrillPosition.username == username)
             .where(DrillPosition.last_drilled_at.is_not(None))
             .order_by(DrillPosition.last_drilled_at.desc())
@@ -359,7 +373,9 @@ class DrillService:
                     result_reason=opp_raw if hero_res == "win" else hero_raw,
                     time_control=game.time_control,
                     time_class=game.time_class,
-                    hero_rating=game.white_rating if hero_is_white else game.black_rating,
+                    hero_rating=(
+                        game.white_rating if hero_is_white else game.black_rating
+                    ),
                     opponent_username=(
                         game.black_username if hero_is_white else game.white_username
                     ),
@@ -445,7 +461,9 @@ class DrillService:
             time_control=game.time_control,
             time_class=game.time_class,
             hero_rating=game.white_rating if hero_is_white else game.black_rating,
-            opponent_username=game.black_username if hero_is_white else game.white_username,
+            opponent_username=(
+                game.black_username if hero_is_white else game.white_username
+            ),
             opponent_rating=game.black_rating if hero_is_white else game.white_rating,
             game_played_at=game.played_at,
             pgn=game.pgn,
@@ -497,7 +515,7 @@ class DrillService:
                     except Exception:
                         board.push(chess.Move.from_uci(mv))
                 with chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH) as eng:
-                    info = eng.analyse(board, chess.engine.Limit(depth=12))
+                    info = eng.analyse(board, chess.engine.Limit(depth=20))
                 score_obj = info["score"]
                 mate_score = score_obj.pov(chess.WHITE).mate()
                 cp_score = score_obj.pov(chess.WHITE).score()
@@ -526,7 +544,9 @@ class DrillService:
     # ------------------------------------------------------------------
     # Drill update
     # ------------------------------------------------------------------
-    def update_drill(self, *, drill_id: int, payload: DrillUpdateRequest) -> DrillPositionResponse:
+    def update_drill(
+        self, *, drill_id: int, payload: DrillUpdateRequest
+    ) -> DrillPositionResponse:
         dp = self.session.get(DrillPosition, drill_id)
         if not dp:
             raise DrillNotFound()
