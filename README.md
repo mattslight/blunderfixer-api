@@ -18,10 +18,10 @@ This FastAPI service powers the chess training features of **BlunderFixer**. A r
 - `GET  /public/players/{username}/recent-games` – fetch and normalise recent games from Chess.com.
 
 ### Drill management
-- `GET  /drills` – list drill positions. Supports filtering by username, eval swing, phase, opponent and more. `recent_first=true` orders by last played.
-- `GET  /drills/recent` – drills you've played recently.
-- `GET  /drills/mastered` – drills where your last five attempts were passes.
-- `GET  /drills/{id}` – retrieve a drill with game info, history, PGN and engine winning lines.
+- `GET  /drills` – list drill positions. Supports filtering by username, eval swing, phase, opponent and more. `recent_first=true` orders by last played. Responses include `eco`, `eco_url` and `pgn` from the game.
+- `GET  /drills/recent` – drills you've played recently. Responses include `eco`, `eco_url` and `pgn`.
+- `GET  /drills/mastered` – drills where your last five attempts were passes. Responses include `eco`, `eco_url` and `pgn`.
+- `GET  /drills/{id}` – retrieve a drill with game info, opening details (`eco`/`eco_url`), history, PGN and engine winning lines.
 - `PATCH /drills/{id}` – update a drill (e.g. `{ "archived": true }` or mark as played).
 - `GET  /drills/{id}/history` – list history entries for a drill.
 - `POST /drills/{id}/history` – record a pass/fail result (any losing moves and final eval) for a drill.
