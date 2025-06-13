@@ -275,7 +275,8 @@ def get_blunders_fixed(
 ) -> BlundersFixedResponse:
     count = session.exec(
         select(func.count())
-        .join(DrillPosition, DrillPosition.id == DrillHistory.drill_position_id)
+        .select_from(DrillHistory)
+        .join(DrillPosition, DrillHistory.drill_position_id == DrillPosition.id)
         .where(DrillPosition.username == username)
         .where(DrillHistory.result == "pass")
     ).one()[0]
