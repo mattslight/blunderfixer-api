@@ -22,7 +22,7 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade():
     # Alter time_used to NUMERIC(5,1), rounding existing floats
     op.alter_column(
-        "drill_position",
+        "drillposition",
         "time_used",
         existing_type=sa.Float(),
         type_=sa.Numeric(5, 1),
@@ -33,7 +33,7 @@ def upgrade():
 def downgrade():
     # Revert back to plain float
     op.alter_column(
-        "drill_position",
+        "drillposition",
         "time_used",
         existing_type=sa.Numeric(5, 1),
         type_=sa.Float(),
