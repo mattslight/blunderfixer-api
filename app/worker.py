@@ -12,6 +12,7 @@ Usage:
 import argparse
 import io
 import os
+import re
 import time
 from datetime import datetime, timezone
 
@@ -29,6 +30,29 @@ STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
 SWING_THRESHOLD = 100  # centipawns to flag a “drill” loss
 WINNING_MOVE_TOLERANCE = 50  # cp difference from best to count as “still winning”
 DEPTH = 18
+
+
+CLK_RE = re.compile(r"\[%clk\s+([0-9]+:[0-9]{2}:[0-9]{2})\]")
+
+
+def _tc_to_seconds(tc: str | None) -> int | None:
+    if not tc:
+        return None
+    base = tc.split("+")[0]
+    try:
+        return int(base)
+    except ValueError:
+        return None
+
+
+def _clock_from_comment(comment: str | None) -> int | None:
+    if not comment:
+        return None
+    m = CLK_RE.search(comment)
+    if not m:
+        return None
+    h, m_str, s = m.group(1).split(":")
+    return int(h) * 3600 + int(m_str) * 60 + int(s)
 
 
 # ─── Evaluation / CP helper ─────────────────────────────────────────────────
@@ -96,7 +120,9 @@ def unified_winning_logic(
 
 
 # ─── Drill‐finding logic ────────────────────────────────────────────────────
-def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
+def shallow_drills_for_hero(
+    sf: SimpleEngine, pgn: str, hero_side: str, time_control: str | None = None
+):
     """
     Scan game PGN and return positions (fen, ply, swing, initial_eval, move_san)
     where hero_side loses ≥ SWING_THRESHOLD in one move.
@@ -105,9 +131,11 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
     if not game:
         return []
 
-    drills: list[tuple[str, int, float, float, str]] = []
+    drills: list[tuple[str, int, float, float, str, int | None]] = []
     ply_idx = 0
     node = game
+    base_secs = _tc_to_seconds(time_control)
+    last_clock = {"w": base_secs, "b": base_secs}
 
     while not node.is_end():
         mover_side = "w" if node.board().turn else "b"
@@ -117,6 +145,12 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
 
             next_node = node.variation(0)
             move_san = node.board().san(next_node.move)
+            remaining = _clock_from_comment(next_node.comment)
+            spent = None
+            if remaining is not None and last_clock[mover_side] is not None:
+                spent = max(0, last_clock[mover_side] - remaining)
+            if remaining is not None:
+                last_clock[mover_side] = remaining
             node = next_node
 
             cp_after = get_cp(sf.analyse(node.board(), Limit(depth=18)))
@@ -124,7 +158,9 @@ def shallow_drills_for_hero(sf: SimpleEngine, pgn: str, hero_side: str):
             delta = sign * (cp_before - cp_after)
 
             if delta >= SWING_THRESHOLD:
-                drills.append((fen_before, ply_idx, delta, cp_before, move_san))
+                drills.append(
+                    (fen_before, ply_idx, delta, cp_before, move_san, spent)
+                )
         else:
             node = node.variation(0)
 
@@ -149,9 +185,14 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
         )
 
         rows: list[DrillPosition] = []
-        for fen, ply, swing, initial_eval, played_move in shallow_drills_for_hero(
-            sf, game.pgn, hero_side
-        ):
+        for (
+            fen,
+            ply,
+            swing,
+            initial_eval,
+            played_move,
+            time_used,
+        ) in shallow_drills_for_hero(sf, game.pgn, hero_side, game.time_control):
             board = chess.Board(fen)
 
             white_minor_count = len(board.pieces(chess.BISHOP, chess.WHITE)) + len(
@@ -179,6 +220,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                     winning_moves=win_moves,
                     winning_lines=win_lines,
                     losing_move=played_move,
+                    time_used=time_used,
                     white_minor_count=white_minor_count,
                     black_minor_count=black_minor_count,
                     white_rook_count=white_rook_count,
@@ -203,6 +245,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                         "winning_moves": row.winning_moves,
                         "winning_lines": row.winning_lines,
                         "losing_move": row.losing_move,
+                        "time_used": row.time_used,
                         "white_minor_count": row.white_minor_count,
                         "black_minor_count": row.black_minor_count,
                         "white_rook_count": row.white_rook_count,

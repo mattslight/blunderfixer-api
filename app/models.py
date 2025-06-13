@@ -157,6 +157,11 @@ class DrillPosition(SQLModel, table=True):
         sa_column=Column(String, nullable=False, server_default=""),
     )
 
+    time_used: Optional[int] = Field(
+        default=None,
+        sa_column=Column(Integer, nullable=True),
+    )
+
     history: List["DrillHistory"] = Relationship(back_populates="drill_position")
 
     last_drilled_at: Optional[datetime] = Field(

@@ -25,6 +25,7 @@ This FastAPI service powers the chess training features of **BlunderFixer**. A r
 - `PATCH /drills/{id}` – update a drill (e.g. `{ "archived": true }` or mark as played).
 - `GET  /drills/{id}/history` – list history entries for a drill.
 - `POST /drills/{id}/history` – record a pass/fail result (any losing moves and final eval) for a drill.
+- Drill responses now include a `time_used` field with seconds spent on the losing move.
 
 ### Sync jobs
 - `POST /sync` – create a job to sync a single user's games.
@@ -44,3 +45,4 @@ make dev
 ```
 
 No automated tests are included yet, so verify changes manually and keep this README current.
+Run `python scripts/backfill_time_used.py` if your database predates the `time_used` column.
