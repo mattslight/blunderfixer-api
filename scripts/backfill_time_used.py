@@ -13,6 +13,7 @@ import io
 import os
 import re
 import sys
+from typing import Optional
 
 import chess.pgn
 from dotenv import load_dotenv
@@ -29,7 +30,7 @@ from app.models import DrillPosition, Game
 CLK_RE = re.compile(r"\[%clk\s+([0-9]+:[0-9]{2}:[0-9]{2})\]")
 
 
-def _tc_to_seconds(tc: str | None) -> int | None:
+def _tc_to_seconds(tc: Optional[str]) -> Optional[int]:
     if not tc:
         return None
     base = tc.split("+")[0]
@@ -39,7 +40,7 @@ def _tc_to_seconds(tc: str | None) -> int | None:
         return None
 
 
-def _clock_from_comment(comment: str | None) -> int | None:
+def _clock_from_comment(comment: Optional[str]) -> Optional[int]:
     if not comment:
         return None
     m = CLK_RE.search(comment)
@@ -49,7 +50,7 @@ def _clock_from_comment(comment: str | None) -> int | None:
     return int(h) * 3600 + int(m_str) * 60 + int(s)
 
 
-def extract_time_used(pgn: str, time_control: str | None, ply: int) -> int | None:
+def extract_time_used(pgn: str, time_control: Optional[str], ply: int) -> Optional[int]:
     game = chess.pgn.read_game(io.StringIO(pgn))
     if not game:
         return None
@@ -80,7 +81,7 @@ def backfill_time_used() -> None:
         print(f"Found {len(positions)} DrillPosition(s) to backfill…")
 
         for dp in positions:
-            game: Game | None = session.get(Game, dp.game_id)
+            game: Optional[Game] = session.get(Game, dp.game_id)
             if not game:
                 print(f"⚠️  Skipping {dp.id}: game {dp.game_id} not found")
                 continue
