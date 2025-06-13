@@ -157,6 +157,11 @@ class DrillPosition(SQLModel, table=True):
         sa_column=Column(String, nullable=False, server_default=""),
     )
 
+    themes: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False, server_default="[]"),
+    )
+
     history: List["DrillHistory"] = Relationship(back_populates="drill_position")
 
     last_drilled_at: Optional[datetime] = Field(

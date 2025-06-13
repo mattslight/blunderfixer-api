@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 
 from app.db import engine as db_engine
 from app.models import DrillPosition, DrillQueue, Game
+from app.utils.drill_themes import detect_themes
 
 # ─── Config ────────────────────────────────────────────────────────────────
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
@@ -166,6 +167,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             black_queen = bool(board.pieces(chess.QUEEN, chess.BLACK))
 
             only_move, win_moves, win_lines = unified_winning_logic(sf, board, hero_side)
+            themes = detect_themes(fen, played_move)
 
             rows.append(
                 DrillPosition(
@@ -179,6 +181,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                     winning_moves=win_moves,
                     winning_lines=win_lines,
                     losing_move=played_move,
+                    themes=themes,
                     white_minor_count=white_minor_count,
                     black_minor_count=black_minor_count,
                     white_rook_count=white_rook_count,
@@ -203,6 +206,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                         "winning_moves": row.winning_moves,
                         "winning_lines": row.winning_lines,
                         "losing_move": row.losing_move,
+                        "themes": row.themes,
                         "white_minor_count": row.white_minor_count,
                         "black_minor_count": row.black_minor_count,
                         "white_rook_count": row.white_rook_count,

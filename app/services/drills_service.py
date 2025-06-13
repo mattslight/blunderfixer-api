@@ -219,6 +219,7 @@ class DrillService:
                         winning_moves=dp.winning_moves,
                         winning_lines=dp.winning_lines,
                         losing_move=dp.losing_move,
+                        themes=dp.themes,
                         history=[DrillHistoryRead.from_orm(h) for h in dp.history],
                         last_drilled_at=dp.last_drilled_at,
                     )
@@ -309,6 +310,7 @@ class DrillService:
                     winning_moves=dp.winning_moves,
                     winning_lines=dp.winning_lines,
                     losing_move=dp.losing_move,
+                    themes=dp.themes,
                     history=[DrillHistoryRead.from_orm(h) for h in dp.history],
                     last_drilled_at=dp.last_drilled_at,
                 )
@@ -398,6 +400,7 @@ class DrillService:
                     winning_moves=dp.winning_moves,
                     winning_lines=dp.winning_lines,
                     losing_move=dp.losing_move,
+                    themes=dp.themes,
                     history=[DrillHistoryRead.from_orm(h) for h in dp.history],
                     last_drilled_at=dp.last_drilled_at,
                 )
@@ -474,6 +477,7 @@ class DrillService:
             winning_moves=drill.winning_moves,
             winning_lines=drill.winning_lines,
             losing_move=drill.losing_move,
+            themes=drill.themes,
             features=features,
             history=[DrillHistoryRead.from_orm(h) for h in drill.history],
             last_drilled_at=drill.last_drilled_at,

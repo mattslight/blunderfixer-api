@@ -80,6 +80,7 @@ class DrillPositionResponse(BaseModel):
     winning_moves: Optional[list[str]] = None
     winning_lines: Optional[list[list[str]]] = None
     losing_move: Optional[str] = None
+    themes: Optional[list[str]] = None
     features: Optional[Dict[str, Any]] = None
     mastered: bool
     history: list[DrillHistoryRead] = []
