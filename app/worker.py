@@ -23,6 +23,7 @@ from sqlmodel import Session, select
 
 from app.db import engine as db_engine
 from app.models import DrillPosition, DrillQueue, Game
+from app.utils.drill_themes import detect_themes
 from app.utils.time_parser import extract_time_used
 
 # ─── Config ────────────────────────────────────────────────────────────────
@@ -196,6 +197,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             only_move, win_moves, win_lines = unified_winning_logic(
                 sf, board, hero_side
             )
+            themes = detect_themes(fen, played_move)
 
             rows.append(
                 DrillPosition(
@@ -210,6 +212,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                     winning_lines=win_lines,
                     losing_move=played_move,
                     time_used=time_used,
+                    themes=themes,
                     white_minor_count=white_minors,
                     black_minor_count=black_minors,
                     white_rook_count=white_rooks,
