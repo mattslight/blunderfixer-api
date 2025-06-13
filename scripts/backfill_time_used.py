@@ -77,7 +77,7 @@ def extract_time_used(pgn: str, time_control: Optional[str], ply: int) -> Option
 def backfill_time_used() -> None:
     with Session(engine) as session:
         stmt = select(DrillPosition).where(DrillPosition.time_used.is_(None))
-        positions = session.exec(stmt).scalars().all()
+        positions = session.exec(stmt).all()
         print(f"Found {len(positions)} DrillPosition(s) to backfill…")
 
         for dp in positions:
