@@ -5,7 +5,7 @@ httpx==0.28.1
 openai==1.79.0
 python-dotenv[cli]==1.1.0
 python_chess==0.27.3
-Requests==2.32.3
+Requests==2.32.4
 sqlmodel==0.0.24
 uvicorn==0.34.2
 psycopg2-binary==2.9.10
