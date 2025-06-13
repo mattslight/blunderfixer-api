@@ -33,6 +33,7 @@ This FastAPI service powers the chess training features of **BlunderFixer**. A r
 
 ### Player statistics
 - `GET /player_stats/{username}` – aggregated stats including win rates, openings and rating progression.
+- `GET /player_stats/{username}/blunders_fixed` – total passes recorded for that user's drills.
 
 ## Contributing
 

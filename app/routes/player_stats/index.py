@@ -5,7 +5,7 @@ from sqlalchemy import Integer, case, func
 from sqlmodel import Session, select
 
 from app.db import get_session
-from app.models import Game
+from app.models import DrillHistory, DrillPosition, Game
 from app.routes.player_stats.schemas import (
     EcoFamilyStats,
     EcoStats,
@@ -13,6 +13,7 @@ from app.routes.player_stats.schemas import (
     EloSeries,
     OpponentStats,
     OverallStats,
+    BlundersFixedResponse,
     PlayerStatsResponse,
     RatingBucketStats,
     TerminationStats,
@@ -265,3 +266,18 @@ def get_player_stats(
         most_faced=most_faced,
         elo_progression=elo_progression,
     )
+
+
+@router.get("/{username}/blunders_fixed", response_model=BlundersFixedResponse)
+def get_blunders_fixed(
+    username: str,
+    session: Session = Depends(get_session),
+) -> BlundersFixedResponse:
+    count = session.exec(
+        select(func.count())
+        .join(DrillPosition, DrillPosition.id == DrillHistory.drill_position_id)
+        .where(DrillPosition.username == username)
+        .where(DrillHistory.result == "pass")
+    ).one()[0]
+
+    return BlundersFixedResponse(username=username, blunders_fixed=count)

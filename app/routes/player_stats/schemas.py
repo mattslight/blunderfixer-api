@@ -90,3 +90,10 @@ class PlayerStatsResponse(BaseModel):
     rating_buckets: List[RatingBucketStats] = []
     most_faced: List[OpponentStats] = []
     elo_progression: List[EloSeries] = []
+
+
+class BlundersFixedResponse(BaseModel):
+    """Total number of drills a user has passed at least once."""
+
+    username: str
+    blunders_fixed: int
