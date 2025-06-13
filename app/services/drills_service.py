@@ -212,6 +212,9 @@ class DrillService:
                             game.black_rating if hero_is_white else game.white_rating
                         ),
                         game_played_at=game.played_at,
+                        eco=game.eco,
+                        eco_url=game.eco_url,
+                        pgn=game.pgn,
                         phase=phase,
                         mastered=mastered,
                         archived=dp.archived,
@@ -294,6 +297,9 @@ class DrillService:
                         game.black_rating if hero_is_white else game.white_rating
                     ),
                     game_played_at=game.played_at,
+                    eco=game.eco,
+                    eco_url=game.eco_url,
+                    pgn=game.pgn,
                     phase=classify_phase(
                         dp.ply,
                         dp.white_queen,
@@ -383,6 +389,9 @@ class DrillService:
                         game.black_rating if hero_is_white else game.white_rating
                     ),
                     game_played_at=game.played_at,
+                    eco=game.eco,
+                    eco_url=game.eco_url,
+                    pgn=game.pgn,
                     phase=classify_phase(
                         dp.ply,
                         dp.white_queen,
@@ -466,6 +475,8 @@ class DrillService:
             ),
             opponent_rating=game.black_rating if hero_is_white else game.white_rating,
             game_played_at=game.played_at,
+            eco=game.eco,
+            eco_url=game.eco_url,
             pgn=game.pgn,
             phase=phase,
             mastered=mastered,

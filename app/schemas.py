@@ -73,6 +73,8 @@ class DrillPositionResponse(BaseModel):
     opponent_username: str
     opponent_rating: int
     game_played_at: datetime
+    eco: Optional[str] = None
+    eco_url: Optional[str] = None
     phase: str
     pgn: Optional[str] = None
     archived: bool
