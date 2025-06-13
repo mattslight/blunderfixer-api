@@ -55,6 +55,7 @@ def get_losing_move(dp: DrillPosition, game: Optional[Game]) -> str:
 def backfill_themes() -> None:
     with Session(engine) as session:
         positions = session.exec(select(DrillPosition)).all()
+
         print(f"Scanning {len(positions)} DrillPosition(s)…")
 
         updated = 0
