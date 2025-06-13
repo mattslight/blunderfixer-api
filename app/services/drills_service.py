@@ -21,6 +21,7 @@ from app.schemas import (
     DrillHistoryRead,
     DrillPositionResponse,
     DrillUpdateRequest,
+    GameResponse,
 )
 
 
@@ -466,7 +467,6 @@ class DrillService:
             ),
             opponent_rating=game.black_rating if hero_is_white else game.white_rating,
             game_played_at=game.played_at,
-            pgn=game.pgn,
             phase=phase,
             mastered=mastered,
             archived=drill.archived,
@@ -477,6 +477,7 @@ class DrillService:
             features=features,
             history=[DrillHistoryRead.from_orm(h) for h in drill.history],
             last_drilled_at=drill.last_drilled_at,
+            game=GameResponse.from_orm(game),
         )
 
     # ------------------------------------------------------------------

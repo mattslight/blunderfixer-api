@@ -56,6 +56,29 @@ class DrillHistoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class GameResponse(BaseModel):
+    """Subset of Game fields returned with a drill."""
+
+    id: str
+    game_uuid: str
+    url: str
+    played_at: datetime
+    end_time: datetime
+    time_class: str
+    time_control: str
+    white_username: str
+    white_rating: int
+    white_result: str
+    black_username: str
+    black_rating: int
+    black_result: str
+    eco: str
+    eco_url: Optional[str] = None
+    pgn: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class DrillPositionResponse(BaseModel):
     id: int
     game_id: str
@@ -74,7 +97,6 @@ class DrillPositionResponse(BaseModel):
     opponent_rating: int
     game_played_at: datetime
     phase: str
-    pgn: Optional[str] = None
     archived: bool
     has_one_winning_move: bool = False
     winning_moves: Optional[list[str]] = None
@@ -84,6 +106,7 @@ class DrillPositionResponse(BaseModel):
     mastered: bool
     history: list[DrillHistoryRead] = []
     last_drilled_at: Optional[datetime] = None
+    game: Optional[GameResponse] = None
     model_config = ConfigDict(from_attributes=True)
 
 
