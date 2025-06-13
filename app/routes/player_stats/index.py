@@ -7,13 +7,13 @@ from sqlmodel import Session, select
 from app.db import get_session
 from app.models import DrillHistory, DrillPosition, Game
 from app.routes.player_stats.schemas import (
+    BlundersFixedResponse,
     EcoFamilyStats,
     EcoStats,
     EloProgressionEntry,
     EloSeries,
     OpponentStats,
     OverallStats,
-    BlundersFixedResponse,
     PlayerStatsResponse,
     RatingBucketStats,
     TerminationStats,
@@ -279,6 +279,6 @@ def get_blunders_fixed(
         .join(DrillPosition, DrillHistory.drill_position_id == DrillPosition.id)
         .where(DrillPosition.username == username)
         .where(DrillHistory.result == "pass")
-    ).one()[0]
+    ).one()
 
     return BlundersFixedResponse(username=username, blunders_fixed=count)
