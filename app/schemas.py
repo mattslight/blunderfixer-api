@@ -65,7 +65,7 @@ class DrillPositionResponse(BaseModel):
     initial_eval: float
     eval_swing: float
     created_at: datetime
-    time_used: Optional[int] = None
+    time_used: Optional[float] = None
     hero_result: str
     result_reason: str
     time_control: str

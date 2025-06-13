@@ -9,6 +9,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
 )
@@ -157,9 +158,9 @@ class DrillPosition(SQLModel, table=True):
         sa_column=Column(String, nullable=False, server_default=""),
     )
 
-    time_used: Optional[int] = Field(
+    time_used: Optional[float] = Field(
         default=None,
-        sa_column=Column(Integer, nullable=True),
+        sa_column=Column(Numeric(5, 1), nullable=True),
     )
 
     history: List["DrillHistory"] = Relationship(back_populates="drill_position")

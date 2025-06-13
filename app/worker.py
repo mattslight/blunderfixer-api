@@ -2,17 +2,15 @@
 """
 scripts/drill_worker.py
 
-DrillQueue worker using a single “within‐tolerance” logic for both
-winning_moves and has_one_winning_move.
+DrillQueue worker using a single “within‑tolerance” logic for both
+winning_moves and has_one_winning_move, reusing shared time‑parsing logic.
 
 Usage:
     $ python scripts/drill_worker.py [--once]
 """
 
 import argparse
-import io
 import os
-import re
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -25,42 +23,22 @@ from sqlmodel import Session, select
 
 from app.db import engine as db_engine
 from app.models import DrillPosition, DrillQueue, Game
+from app.utils.time_parser import extract_time_used
 
 # ─── Config ────────────────────────────────────────────────────────────────
 STOCKFISH = os.getenv("STOCKFISH_PATH", "stockfish")
 SWING_THRESHOLD = 100  # centipawns to flag a “drill” loss
 WINNING_MOVE_TOLERANCE = 50  # cp difference from best to count as “still winning”
-DEPTH = 18
-
-
-CLK_RE = re.compile(r"\[%clk\s+([0-9]+:[0-9]{2}:[0-9]{2})\]")
-
-
-def _tc_to_seconds(tc: Optional[str]) -> Optional[int]:
-    if not tc:
-        return None
-    base = tc.split("+")[0]
-    try:
-        return int(base)
-    except ValueError:
-        return None
-
-
-def _clock_from_comment(comment: Optional[str]) -> Optional[int]:
-    if not comment:
-        return None
-    m = CLK_RE.search(comment)
-    if not m:
-        return None
-    h, m_str, s = m.group(1).split(":")
-    return int(h) * 3600 + int(m_str) * 60 + int(s)
+DEPTH = 18  # search depth for Stockfish analysis
 
 
 # ─── Evaluation / CP helper ─────────────────────────────────────────────────
+
+
 def get_cp(info) -> float:
     """
     Extract centipawn or mate score from Stockfish analysis, normalized to White’s POV.
-    +ve = White‐favorable, −ve = Black‐favorable.
+    +ve = White‑favorable, −ve = Black‑favorable.
     """
     score_obj = info["score"]
     mate_score = score_obj.pov(chess.WHITE).mate()
@@ -79,10 +57,10 @@ def unified_winning_logic(
     sf: SimpleEngine, board: chess.Board, hero_side: str
 ) -> tuple[bool, list[str], list[list[str]]]:
     """
-    1) Run Stockfish with multipv=3 at depth=18.
-    2) Convert each line’s CP to “hero’s POV” (signed).
-    3) winning_moves = all lines where (best_hero_cp - this_line_hero_cp) <= WINNING_MOVE_TOLERANCE.
-    4) has_one_winning_move = (len(winning_moves) == 1).
+    1) Run Stockfish with multipv=3 at configured DEPTH.
+    2) Convert each PV line’s CP to hero’s POV (signed).
+    3) winning_moves: all lines where (best_hero_cp - this_line_cp) <= WINNING_MOVE_TOLERANCE.
+    4) has_one_winning_move: True if exactly one such line.
     """
     analysis = sf.analyse(board, Limit(depth=DEPTH), multipv=3)
     if not isinstance(analysis, list):
@@ -91,10 +69,11 @@ def unified_winning_logic(
     hero_cp_list: list[float] = []
     all_lines: list[list[str]] = []
     for info in analysis:
-        raw_cp = get_cp(info)  # White’s POV
+        raw_cp = get_cp(info)
         signed_cp = raw_cp if hero_side == "w" else -raw_cp
         hero_cp_list.append(signed_cp)
 
+        # build the principal variation as SAN moves
         pv_line: list[str] = []
         b_copy = board.copy()
         for mv in info.get("pv", []):
@@ -108,7 +87,7 @@ def unified_winning_logic(
     best_hero_cp = hero_cp_list[0]
     moves_within: list[str] = []
     lines_within: list[list[str]] = []
-    for idx, info in enumerate(analysis):
+    for idx, _ in enumerate(analysis):
         diff = best_hero_cp - hero_cp_list[idx]
         if diff <= WINNING_MOVE_TOLERANCE:
             moves_within.append(all_lines[idx][0] if all_lines[idx] else "")
@@ -116,50 +95,56 @@ def unified_winning_logic(
         else:
             break
 
-    only_flag = len(moves_within) == 1
-    return only_flag, moves_within, lines_within
+    return (len(moves_within) == 1), moves_within, lines_within
 
 
-# ─── Drill‐finding logic ────────────────────────────────────────────────────
+# ─── Drill‑finding logic ────────────────────────────────────────────────────
+
+
 def shallow_drills_for_hero(
-    sf: SimpleEngine, pgn: str, hero_side: str, time_control: str | None = None
+    sf: SimpleEngine, pgn: str, hero_side: str, time_control: Optional[str] = None
 ):
     """
-    Scan game PGN and return positions (fen, ply, swing, initial_eval, move_san)
-    where hero_side loses ≥ SWING_THRESHOLD in one move.
+    Scan a game PGN and return tuples of (fen, ply, swing, initial_eval, move_san, time_used)
+    for every hero move where the evaluation drop (swing) ≥ SWING_THRESHOLD.
+    time_used is parsed via the shared extract_time_used() util.
     """
     game = chess.pgn.read_game(io.StringIO(pgn))
     if not game:
         return []
 
-    drills: list[tuple[str, int, float, float, str, int | None]] = []
+    drills: list[tuple[str, int, float, float, str, Optional[float]]] = []
     ply_idx = 0
     node = game
-    base_secs = _tc_to_seconds(time_control)
-    last_clock = {"w": base_secs, "b": base_secs}
 
+    # iterate through all half‑moves
     while not node.is_end():
-        mover_side = "w" if node.board().turn else "b"
-        if mover_side == hero_side:
+        mover = "w" if node.board().turn else "b"
+
+        if mover == hero_side:
             fen_before = node.board().fen()
-            cp_before = get_cp(sf.analyse(node.board(), Limit(depth=18)))
+            cp_before = get_cp(sf.analyse(node.board(), Limit(depth=DEPTH)))
 
             next_node = node.variation(0)
             move_san = node.board().san(next_node.move)
-            remaining = _clock_from_comment(next_node.comment)
-            spent = None
-            if remaining is not None and last_clock[mover_side] is not None:
-                spent = max(0, last_clock[mover_side] - remaining)
-            if remaining is not None:
-                last_clock[mover_side] = remaining
             node = next_node
 
-            cp_after = get_cp(sf.analyse(node.board(), Limit(depth=18)))
-            sign = 1 if hero_side == "w" else -1
-            delta = sign * (cp_before - cp_after)
+            cp_after = get_cp(sf.analyse(node.board(), Limit(depth=DEPTH)))
+            delta = (cp_before - cp_after) * (1 if hero_side == "w" else -1)
 
             if delta >= SWING_THRESHOLD:
-                drills.append((fen_before, ply_idx, delta, cp_before, move_san, spent))
+                # use the same extract_time_used for backfill consistency
+                time_used = extract_time_used(pgn, time_control, ply_idx)
+                drills.append(
+                    (
+                        fen_before,
+                        ply_idx,
+                        delta,
+                        cp_before,
+                        move_san,
+                        time_used,
+                    )
+                )
         else:
             node = node.variation(0)
 
@@ -169,6 +154,8 @@ def shallow_drills_for_hero(
 
 
 # ─── Process a single DrillQueue entry ─────────────────────────────────────
+
+
 def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
     with Session(db_engine) as session:
         dq = session.get(DrillQueue, queue_id)
@@ -184,6 +171,8 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
         )
 
         rows: list[DrillPosition] = []
+
+        # find all losing swings and prepare DrillPosition entries
         for (
             fen,
             ply,
@@ -194,16 +183,15 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
         ) in shallow_drills_for_hero(sf, game.pgn, hero_side, game.time_control):
             board = chess.Board(fen)
 
-            white_minor_count = len(board.pieces(chess.BISHOP, chess.WHITE)) + len(
+            # board feature counts
+            white_minors = len(board.pieces(chess.BISHOP, chess.WHITE)) + len(
                 board.pieces(chess.KNIGHT, chess.WHITE)
             )
-            black_minor_count = len(board.pieces(chess.BISHOP, chess.BLACK)) + len(
+            black_minors = len(board.pieces(chess.BISHOP, chess.BLACK)) + len(
                 board.pieces(chess.KNIGHT, chess.BLACK)
             )
-            white_rook_count = len(board.pieces(chess.ROOK, chess.WHITE))
-            black_rook_count = len(board.pieces(chess.ROOK, chess.BLACK))
-            white_queen = bool(board.pieces(chess.QUEEN, chess.WHITE))
-            black_queen = bool(board.pieces(chess.QUEEN, chess.BLACK))
+            white_rooks = len(board.pieces(chess.ROOK, chess.WHITE))
+            black_rooks = len(board.pieces(chess.ROOK, chess.BLACK))
 
             only_move, win_moves, win_lines = unified_winning_logic(
                 sf, board, hero_side
@@ -222,41 +210,20 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
                     winning_lines=win_lines,
                     losing_move=played_move,
                     time_used=time_used,
-                    white_minor_count=white_minor_count,
-                    black_minor_count=black_minor_count,
-                    white_rook_count=white_rook_count,
-                    black_rook_count=black_rook_count,
-                    white_queen=white_queen,
-                    black_queen=black_queen,
+                    white_minor_count=white_minors,
+                    black_minor_count=black_minors,
+                    white_rook_count=white_rooks,
+                    black_rook_count=black_rooks,
+                    white_queen=bool(board.pieces(chess.QUEEN, chess.WHITE)),
+                    black_queen=bool(board.pieces(chess.QUEEN, chess.BLACK)),
                     created_at=datetime.now(timezone.utc),
                 )
             )
 
+        # bulk insert, ignoring duplicates
         if rows:
             stmt = insert(DrillPosition).values(
-                [
-                    {
-                        "game_id": row.game_id,
-                        "username": row.username,
-                        "fen": row.fen,
-                        "ply": row.ply,
-                        "initial_eval": row.initial_eval,
-                        "eval_swing": row.eval_swing,
-                        "has_one_winning_move": row.has_one_winning_move,
-                        "winning_moves": row.winning_moves,
-                        "winning_lines": row.winning_lines,
-                        "losing_move": row.losing_move,
-                        "time_used": row.time_used,
-                        "white_minor_count": row.white_minor_count,
-                        "black_minor_count": row.black_minor_count,
-                        "white_rook_count": row.white_rook_count,
-                        "black_rook_count": row.black_rook_count,
-                        "white_queen": row.white_queen,
-                        "black_queen": row.black_queen,
-                        "created_at": row.created_at,
-                    }
-                    for row in rows
-                ]
+                [row.dict(exclude_unset=True) for row in rows]
             )
             stmt = stmt.on_conflict_do_nothing(
                 index_elements=["game_id", "username", "ply"]
@@ -264,6 +231,7 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             session.exec(stmt)
             session.commit()
 
+        # mark queue entry done
         dq.drills_processed = True
         dq.drilled_at = datetime.now(timezone.utc)
         session.add(dq)
@@ -273,6 +241,8 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
 
 
 # ─── Fetch next batch of unprocessed DrillQueue IDs ────────────────────────
+
+
 def fetch_next_batch(limit: int) -> list[str]:
     with Session(db_engine) as session:
         stmt = (
