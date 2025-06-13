@@ -15,6 +15,7 @@ import os
 import re
 import time
 from datetime import datetime, timezone
+from typing import Optional
 
 import chess
 import chess.pgn
@@ -35,7 +36,7 @@ DEPTH = 18
 CLK_RE = re.compile(r"\[%clk\s+([0-9]+:[0-9]{2}:[0-9]{2})\]")
 
 
-def _tc_to_seconds(tc: str | None) -> int | None:
+def _tc_to_seconds(tc: Optional[str]) -> Optional[int]:
     if not tc:
         return None
     base = tc.split("+")[0]
@@ -45,7 +46,7 @@ def _tc_to_seconds(tc: str | None) -> int | None:
         return None
 
 
-def _clock_from_comment(comment: str | None) -> int | None:
+def _clock_from_comment(comment: Optional[str]) -> Optional[int]:
     if not comment:
         return None
     m = CLK_RE.search(comment)
@@ -158,9 +159,7 @@ def shallow_drills_for_hero(
             delta = sign * (cp_before - cp_after)
 
             if delta >= SWING_THRESHOLD:
-                drills.append(
-                    (fen_before, ply_idx, delta, cp_before, move_san, spent)
-                )
+                drills.append((fen_before, ply_idx, delta, cp_before, move_san, spent))
         else:
             node = node.variation(0)
 
@@ -206,7 +205,9 @@ def process_queue_entry(sf: SimpleEngine, queue_id: str) -> str:
             white_queen = bool(board.pieces(chess.QUEEN, chess.WHITE))
             black_queen = bool(board.pieces(chess.QUEEN, chess.BLACK))
 
-            only_move, win_moves, win_lines = unified_winning_logic(sf, board, hero_side)
+            only_move, win_moves, win_lines = unified_winning_logic(
+                sf, board, hero_side
+            )
 
             rows.append(
                 DrillPosition(
